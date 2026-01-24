@@ -154,6 +154,7 @@ The v0.1 viewer is a static page that:
 - shows the stage list in order
 - displays `preview.png` (and ROI when available)
 - shows the `debug.json` content and timing
+Note: open the viewer via HTTP (e.g., `python -m http.server`) since `file://` may block `fetch()` in some browsers.
 
 ### 5.1 What the viewer must not assume
 - It must not assume every stage has ROI/mask/hist artifacts.

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mini-ISP Viewer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title">mini-ISP Viewer</div>
+      <div id="run-title" class="subtitle"></div>
+    </header>
+    <main>
+      <aside>
+        <div class="panel-header">Stages</div>
+        <ul id="stage-list"></ul>
+      </aside>
+      <section class="content">
+        <div class="image-panel">
+          <div class="image-header">
+            <div id="stage-name"></div>
+            <div class="controls">
+              <button id="toggle-roi" disabled>ROI</button>
+              <button id="toggle-debug">Debug</button>
+            </div>
+          </div>
+          <img id="preview" alt="Stage preview" />
+          <div id="timing" class="timing"></div>
+        </div>
+        <pre id="debug" class="debug hidden"></pre>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

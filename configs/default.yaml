@@ -1,0 +1,40 @@
+pipeline_mode: classic
+
+input:
+  path: data/sample.png
+  bayer_pattern: RGGB
+  bit_depth: 8
+  black_level: 0
+  white_level: 255
+
+output:
+  dir: runs
+  name: null
+  save_final: true
+  format: png
+  bit_depth: 8
+
+dump:
+  enable: true
+  preview_max_side: 1024
+  roi:
+    enable: true
+    xywh: [0.35, 0.35, 0.30, 0.30]
+  stages: all
+
+metrics:
+  enable: true
+  timing: true
+  histograms: false
+  deltas: false
+
+skin_mask:
+  enable: false
+  method: heuristic
+  dump: true
+
+stages: {}
+
+viewer:
+  enable: true
+  title: mini-ISP run

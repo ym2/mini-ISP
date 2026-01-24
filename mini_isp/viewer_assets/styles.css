@@ -1,0 +1,146 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #151824;
+  --accent: #3fd0c9;
+  --text: #e6e9f2;
+  --muted: #a6adbf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Source Sans Pro", "Helvetica Neue", Arial, sans-serif;
+  background: radial-gradient(circle at top, #161a27, var(--bg));
+  color: var(--text);
+}
+
+header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #22263a;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+main {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: calc(100vh - 70px);
+}
+
+aside {
+  padding: 16px;
+  border-right: 1px solid #22263a;
+  background: var(--panel);
+}
+
+.panel-header {
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+#stage-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#stage-list li {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+#stage-list li.active {
+  background: #222944;
+  color: var(--accent);
+}
+
+.content {
+  padding: 16px 24px;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+}
+
+.image-panel {
+  background: #111522;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #20253a;
+}
+
+.image-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.controls button {
+  margin-left: 8px;
+  background: transparent;
+  border: 1px solid #2b324a;
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#preview {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #1f2438;
+  display: block;
+}
+
+.timing {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.debug {
+  background: #111522;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #20253a;
+  overflow: auto;
+  max-height: 70vh;
+}
+
+.hidden {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  aside {
+    border-right: none;
+    border-bottom: 1px solid #22263a;
+  }
+  .content {
+    grid-template-columns: 1fr;
+  }
+}
