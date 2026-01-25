@@ -492,6 +492,144 @@ def stage_demosaic_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
     return StageResult(frame=Frame(image=rgb, meta=dict(frame.meta)), metrics={"method": "replicate"})
 
 
+def _tone_reinhard(image: np.ndarray) -> np.ndarray:
+    return image / (1.0 + image)
+
+
+def _tone_filmic(image: np.ndarray) -> np.ndarray:
+    # Simple filmic-like curve (Hable-ish)
+    a = 0.22
+    b = 0.30
+    c = 0.10
+    d = 0.20
+    e = 0.01
+    f = 0.30
+    x = image
+    out = ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f
+    return out
+
+
+def stage_tone(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "tone expects RGB image"})
+    method = str(params.get("method", "reinhard")).lower()
+    if method == "reinhard":
+        out = _tone_reinhard(image)
+    elif method == "filmic":
+        out = _tone_filmic(image)
+    else:
+        raise ValueError(f"Unknown tone method: {method}")
+
+    clip_applied = False
+    clip_range = None
+    clip = params.get("clip", None)
+    if clip is not None:
+        lo, hi = float(clip[0]), float(clip[1])
+        out = np.clip(out, lo, hi).astype(np.float32)
+        clip_applied = True
+        clip_range = [lo, hi]
+
+    metrics = {
+        "method": method,
+        "clip_applied": clip_applied,
+        "clip_range": clip_range,
+        "min": float(np.min(out)),
+        "max": float(np.max(out)),
+        "p01": float(np.percentile(out, 1.0)),
+        "p99": float(np.percentile(out, 99.0)),
+    }
+    return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)
+
+
+def stage_color_adjust(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "color_adjust expects RGB image"})
+    method = str(params.get("method", "identity")).lower()
+    if method == "identity":
+        out = np.array(image, copy=True)
+        sat_scale = 1.0
+    elif method == "chroma_scale_lrgb":
+        sat_scale = float(params.get("sat_scale", 1.0))
+        y = 0.2126 * image[:, :, 0] + 0.7152 * image[:, :, 1] + 0.0722 * image[:, :, 2]
+        y = y[:, :, None]
+        out = y + sat_scale * (image - y)
+    else:
+        raise ValueError(f"Unknown color_adjust method: {method}")
+
+    metrics = {
+        "method": method,
+        "sat_scale": sat_scale,
+        "min": float(np.min(out)),
+        "max": float(np.max(out)),
+        "p01": float(np.percentile(out, 1.0)),
+        "p99": float(np.percentile(out, 99.0)),
+    }
+    return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)
+
+
+def stage_sharpen(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "sharpen expects RGB image"})
+    method = str(params.get("method", "unsharp_mask")).lower()
+    if method != "unsharp_mask":
+        raise ValueError(f"Unknown sharpen method: {method}")
+    sigma = float(params.get("sigma", 1.0))
+    amount = float(params.get("amount", 0.5))
+    threshold = float(params.get("threshold", 0.0))
+
+    ksize = int(max(3, int(round(sigma * 6 + 1))))
+    if ksize % 2 == 0:
+        ksize += 1
+    kernel = _kernel_gaussian(ksize, sigma)
+    blurred = np.stack(
+        [_convolve2d_edge(image[:, :, c], kernel) for c in range(3)], axis=2
+    ).astype(np.float32)
+    mask = image - blurred
+    if threshold > 0.0:
+        mask = np.where(np.abs(mask) >= threshold, mask, 0.0)
+    out = image + amount * mask
+
+    metrics = {
+        "method": method,
+        "sigma": sigma,
+        "amount": amount,
+        "threshold": threshold,
+        "min": float(np.min(out)),
+        "max": float(np.max(out)),
+        "p01": float(np.percentile(out, 1.0)),
+        "p99": float(np.percentile(out, 99.0)),
+    }
+    return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)
+
+
+def stage_oetf_encode(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "oetf_encode expects RGB image"})
+    oetf = str(params.get("oetf", "srgb")).lower()
+    if oetf != "srgb":
+        raise ValueError(f"Unknown oetf: {oetf}")
+    # Required clipping before encoding
+    clipped = np.clip(image, 0.0, 1.0).astype(np.float32)
+    encoded = np.where(
+        clipped <= 0.0031308,
+        clipped * 12.92,
+        1.055 * np.power(clipped, 1 / 2.4) - 0.055,
+    )
+    encoded_u8 = np.clip(encoded * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+    metrics = {
+        "oetf": oetf,
+        "clip_applied": True,
+        "clip_range": [0.0, 1.0],
+        "dtype": "uint8",
+        "bit_depth": 8,
+    }
+    return StageResult(frame=Frame(image=encoded_u8, meta=dict(frame.meta)), metrics=metrics)
+
 def stage_oetf_encode_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
     # Pass-through; final encoding happens in runner
     return StageResult(frame=_copy_frame(frame), metrics={"encoding": "srgb", "bit_depth": 8})
@@ -507,10 +645,10 @@ def build_stage(name: str) -> Stage:
         "denoise": ("Denoise", stage_denoise),
         "ccm": ("CCM", stage_ccm),
         "stats_3a": ("3A stats", stage_stats_3a),
-        "tone": ("Tone", stage_stub_identity),
-        "color_adjust": ("Color adjust", stage_stub_identity),
-        "sharpen": ("Sharpen", stage_stub_identity),
-        "oetf_encode": ("OETF encode", stage_oetf_encode_stub),
+        "tone": ("Tone", stage_tone),
+        "color_adjust": ("Color adjust", stage_color_adjust),
+        "sharpen": ("Sharpen", stage_sharpen),
+        "oetf_encode": ("OETF encode", stage_oetf_encode),
         "jdd_raw2rgb": ("JDD raw2rgb", stage_jdd_raw2rgb),
         "drc_plus_color": ("DRC + color", stage_stub_identity),
     }

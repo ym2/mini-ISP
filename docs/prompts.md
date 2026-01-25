@@ -121,3 +121,56 @@ Tests:
 - stats_3a: stage output pixels are bitwise-equal to input; required keys exist with sensible ranges/shapes (hist sums correctly; focus metric is finite).
 
 Deliverables: end with commands to (1) install dev/test deps, (2) run pytest -q, and (3) run the pipeline (classic mode).
+
+---
+
+## M7 — Tone + color adjust + sharpen + OETF
+
+### Final prompt
+Milestone M7 (v0.1): Tone + color adjust + sharpen + OETF.
+
+Implement tone, color_adjust, sharpen, and oetf_encode per docs/stage_contracts.md.
+
+Global policy (v0.1):
+- Keep intermediate stages in float32 and allow values outside [0,1] (no implicit clipping), unless explicitly configured.
+- Only oetf_encode must clip to [0,1] before encoding to display output. If any earlier stage applies clipping, it must be opt-in and recorded in debug.
+
+tone:
+- Add tone.method: reinhard|filmic (v0.1 default = reinhard).
+- Operate on RGB_LINEAR_F32 → RGB_LINEAR_F32, keep float32.
+- Record in debug: method, params, and range stats; if clipping is applied (opt-in), record clip_applied and clip_range.
+
+color_adjust:
+- Add color_adjust.method: identity|chroma_scale_lrgb (v0.1 default = identity).
+- chroma_scale_lrgb is the v0.1 baseline (minimal-deps, deterministic). Future methods (v0.2+) will add: oklab_chroma_scale and ictcp_chroma_scale.
+- identity: no-op (must be bitwise-equal output).
+- chroma_scale_lrgb: neutral-axis chroma scaling in linear RGB:
+- Y = 0.2126R + 0.7152G + 0.0722B
+- rgb' = Y + sat_scale * (rgb - Y) with sat_scale (default 1.0).
+- Operate on RGB_LINEAR_F32 → RGB_LINEAR_F32, keep float32.
+- Record in debug: method, sat_scale, and range stats; no clipping by default.
+
+sharpen:
+- Add sharpen.method: unsharp_mask (v0.1 default = unsharp_mask).
+- Implement unsharp mask with deterministic blur and borders:
+- blur = Gaussian (default sigma=1.0, kernel derived from sigma) and border handling = edge-clamp
+- params: amount (default 0.5), threshold (default 0.0), sigma (default 1.0)
+- Operate on RGB_LINEAR_F32 → RGB_LINEAR_F32, keep float32.
+- Record in debug: method, sigma, amount, threshold, and range stats; no clipping by default.
+
+oetf_encode:
+- Add oetf_encode.oetf: srgb (v0.1 default = srgb).
+- Apply the selected OETF (v0.1: sRGB OETF, standard piecewise) and output RGB_DISPLAY_U8.
+- Before OETF, clip to [0,1] (required in v0.1). Record clip_applied=true and clip_range=[0,1].
+- Save final output image in final/ and ensure stage artifacts are dumped like others.
+- Record in debug: oetf (srgb), output dtype/bit depth (uint8, 8-bit), and clip info.
+
+Constraints: keep run-folder layout + manifest.json schema unchanged; do not edit docs; minimal deps; pytest -q must pass; PNG bootstrap still works.
+
+Tests:
+1. tone: both methods preserve shape/dtype; reinhard on a known input produces predictable compression (e.g., monotonic, reduced highlights).
+2. color_adjust: identity is a strict no-op (bitwise-equal); chroma_scale_lrgb changes chroma as expected on a synthetic RGB triplet while preserving luma.
+3. sharpen: unsharp_mask increases local contrast on a synthetic step edge (e.g., higher gradient magnitude) without changing shape/dtype.
+4. oetf_encode: oetf=srgb returns uint8 in [0,255], and clipping is recorded.
+
+Deliverables: end with commands to (1) install dev/test deps, (2) run pytest -q, and (3) run the pipeline in classic mode.
