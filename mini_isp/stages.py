@@ -248,6 +248,98 @@ def stage_demosaic(frame: Frame, params: Dict[str, Any]) -> StageResult:
     return StageResult(frame=Frame(image=rgb, meta=dict(frame.meta)), metrics=metrics)
 
 
+def _kernel_box(ksize: int) -> np.ndarray:
+    if ksize % 2 == 0 or ksize < 1:
+        raise ValueError("ksize must be odd and >= 1")
+    kernel = np.ones((ksize, ksize), dtype=np.float32)
+    return kernel / float(ksize * ksize)
+
+
+def _kernel_gaussian(ksize: int, sigma: float) -> np.ndarray:
+    if ksize % 2 == 0 or ksize < 1:
+        raise ValueError("ksize must be odd and >= 1")
+    if sigma <= 0:
+        raise ValueError("sigma must be > 0")
+    radius = ksize // 2
+    x = np.arange(-radius, radius + 1, dtype=np.float32)
+    g = np.exp(-(x ** 2) / (2 * sigma * sigma))
+    g /= np.sum(g)
+    kernel = np.outer(g, g).astype(np.float32)
+    return kernel / np.sum(kernel)
+
+
+def _convolve2d_edge(image: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    kh, kw = kernel.shape
+    pad_h = kh // 2
+    pad_w = kw // 2
+    padded = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode="edge")
+    out = np.zeros_like(image, dtype=np.float32)
+    h, w = image.shape
+    for y in range(h):
+        for x in range(w):
+            patch = padded[y : y + kh, x : x + kw]
+            out[y, x] = float(np.sum(patch * kernel))
+    return out.astype(np.float32)
+
+
+def stage_denoise(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "denoise expects RGB image"})
+    method = str(params.get("method", "gaussian")).lower()
+    clip_applied = False
+    clip_range = None
+    if method == "gaussian":
+        ksize = int(params.get("ksize", 5))
+        sigma = float(params.get("sigma", 1.0))
+        kernel = _kernel_gaussian(ksize, sigma)
+        method_params = {"ksize": ksize, "sigma": sigma}
+    elif method == "box":
+        ksize = int(params.get("ksize", 3))
+        kernel = _kernel_box(ksize)
+        method_params = {"ksize": ksize}
+    else:
+        raise ValueError(f"Unknown denoise method: {method}")
+
+    channels = []
+    for c in range(3):
+        channels.append(_convolve2d_edge(image[:, :, c], kernel))
+    out = np.stack(channels, axis=2).astype(np.float32)
+
+    if params.get("clip", False):
+        out = np.clip(out, 0.0, 1.0).astype(np.float32)
+        clip_applied = True
+        clip_range = [0.0, 1.0]
+
+    metrics = {
+        "method": method,
+        "params": method_params,
+        "clip_applied": clip_applied,
+        "clip_range": clip_range,
+        "min": float(np.min(out)),
+        "max": float(np.max(out)),
+        "p01": float(np.percentile(out, 1.0)),
+        "p99": float(np.percentile(out, 99.0)),
+    }
+    return StageResult(frame=Frame(image=out, meta=dict(frame.meta)), metrics=metrics)
+
+
+def stage_jdd_raw2rgb(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    method = str(params.get("method", "wrapper")).lower()
+    if method != "wrapper":
+        raise ValueError(f"Unknown jdd_raw2rgb method: {method}")
+    demosaic_params = params.get("demosaic", {})
+    denoise_params = params.get("denoise", {})
+    demosaic_result = stage_demosaic(frame, demosaic_params)
+    denoise_result = stage_denoise(demosaic_result.frame, denoise_params)
+    metrics = {
+        "method": method,
+        "demosaic": demosaic_result.metrics,
+        "denoise": denoise_result.metrics,
+    }
+    return StageResult(frame=denoise_result.frame, metrics=metrics)
+
+
 def stage_demosaic_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
     # Simple placeholder: replicate mosaic into 3 channels
     if frame.image.ndim == 2:
@@ -269,14 +361,14 @@ def build_stage(name: str) -> Stage:
         "lsc": ("LSC", stage_lsc),
         "wb_gains": ("WB gains", stage_wb_gains),
         "demosaic": ("Demosaic", stage_demosaic),
-        "denoise": ("Denoise", stage_stub_identity),
+        "denoise": ("Denoise", stage_denoise),
         "ccm": ("CCM", stage_stub_identity),
         "stats_3a": ("3A stats", stage_stub_identity),
         "tone": ("Tone", stage_stub_identity),
         "color_adjust": ("Color adjust", stage_stub_identity),
         "sharpen": ("Sharpen", stage_stub_identity),
         "oetf_encode": ("OETF encode", stage_oetf_encode_stub),
-        "jdd_raw2rgb": ("JDD raw2rgb", stage_demosaic_stub),
+        "jdd_raw2rgb": ("JDD raw2rgb", stage_jdd_raw2rgb),
         "drc_plus_color": ("DRC + color", stage_stub_identity),
     }
     if name not in mapping:
