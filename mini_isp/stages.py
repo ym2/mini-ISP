@@ -146,6 +146,108 @@ def stage_lsc(frame: Frame, params: Dict[str, Any]) -> StageResult:
     return StageResult(frame=Frame(image=corrected, meta=dict(frame.meta)), metrics=metrics)
 
 
+def stage_wb_gains(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 2:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "wb_gains expects RAW mosaic"})
+    meta = dict(frame.meta)
+    cfa = meta.get("cfa_pattern", "RGGB")
+    if cfa != "RGGB":
+        raise ValueError(f"wb_gains only supports RGGB in v0.1 (got {cfa})")
+    gains = params.get("wb_gains", params.get("gains", [1.0, 1.0, 1.0]))
+    r_gain, g_gain, b_gain = [float(x) for x in gains]
+    out = np.array(image, copy=True, dtype=np.float32)
+    out[0::2, 0::2] *= r_gain  # R
+    out[0::2, 1::2] *= g_gain  # Gr
+    out[1::2, 0::2] *= g_gain  # Gb
+    out[1::2, 1::2] *= b_gain  # B
+    meta["wb_gains"] = [r_gain, g_gain, b_gain]
+    meta["wb_applied"] = True
+    metrics = {
+        "wb_gains": [r_gain, g_gain, b_gain],
+        "wb_applied": True,
+        "min_after": float(np.min(out)),
+        "max_after": float(np.max(out)),
+    }
+    return StageResult(frame=Frame(image=out, meta=meta), metrics=metrics)
+
+
+def _demosaic_bilinear_rggb(mosaic: np.ndarray) -> np.ndarray:
+    mosaic = mosaic.astype(np.float32)
+    h, w = mosaic.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    r_mask = (yy % 2 == 0) & (xx % 2 == 0)
+    b_mask = (yy % 2 == 1) & (xx % 2 == 1)
+    g1_mask = (yy % 2 == 0) & (xx % 2 == 1)  # Gr
+    g2_mask = (yy % 2 == 1) & (xx % 2 == 0)  # Gb
+
+    padded = np.pad(mosaic, 1, mode="edge")
+    c = padded[1:-1, 1:-1]
+    n = padded[0:-2, 1:-1]
+    s = padded[2:, 1:-1]
+    wv = padded[1:-1, 0:-2]
+    e = padded[1:-1, 2:]
+    nw = padded[0:-2, 0:-2]
+    ne = padded[0:-2, 2:]
+    sw = padded[2:, 0:-2]
+    se = padded[2:, 2:]
+
+    r = np.zeros_like(mosaic, dtype=np.float32)
+    g = np.zeros_like(mosaic, dtype=np.float32)
+    b = np.zeros_like(mosaic, dtype=np.float32)
+
+    r[r_mask] = c[r_mask]
+    b[b_mask] = c[b_mask]
+    g[g1_mask | g2_mask] = c[g1_mask | g2_mask]
+
+    # R at B sites, B at R sites
+    r[b_mask] = 0.25 * (nw[b_mask] + ne[b_mask] + sw[b_mask] + se[b_mask])
+    b[r_mask] = 0.25 * (nw[r_mask] + ne[r_mask] + sw[r_mask] + se[r_mask])
+
+    # G at R/B sites
+    g[r_mask] = 0.25 * (n[r_mask] + s[r_mask] + wv[r_mask] + e[r_mask])
+    g[b_mask] = 0.25 * (n[b_mask] + s[b_mask] + wv[b_mask] + e[b_mask])
+
+    # R/B at green sites (directional)
+    r[g1_mask] = 0.5 * (wv[g1_mask] + e[g1_mask])
+    b[g1_mask] = 0.5 * (n[g1_mask] + s[g1_mask])
+    r[g2_mask] = 0.5 * (n[g2_mask] + s[g2_mask])
+    b[g2_mask] = 0.5 * (wv[g2_mask] + e[g2_mask])
+
+    return np.stack([r, g, b], axis=2).astype(np.float32)
+
+
+def stage_demosaic(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 2:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "demosaic expects RAW mosaic"})
+    method = str(params.get("method", "bilinear")).lower()
+    clip_applied = False
+    clip_range = None
+    if method == "bilinear":
+        rgb = _demosaic_bilinear_rggb(image)
+    elif method == "malvar":
+        raise NotImplementedError("demosaic method 'malvar' is not implemented in v0.1")
+    else:
+        raise ValueError(f"Unknown demosaic method: {method}")
+
+    if params.get("clip", False):
+        rgb = np.clip(rgb, 0.0, 1.0).astype(np.float32)
+        clip_applied = True
+        clip_range = [0.0, 1.0]
+
+    metrics = {
+        "method": method,
+        "clip_applied": clip_applied,
+        "clip_range": clip_range,
+        "min": float(np.min(rgb)),
+        "max": float(np.max(rgb)),
+        "p01": float(np.percentile(rgb, 1.0)),
+        "p99": float(np.percentile(rgb, 99.0)),
+    }
+    return StageResult(frame=Frame(image=rgb, meta=dict(frame.meta)), metrics=metrics)
+
+
 def stage_demosaic_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
     # Simple placeholder: replicate mosaic into 3 channels
     if frame.image.ndim == 2:
@@ -165,8 +267,8 @@ def build_stage(name: str) -> Stage:
         "raw_norm": ("RAW normalize", stage_raw_norm),
         "dpc": ("DPC", stage_dpc),
         "lsc": ("LSC", stage_lsc),
-        "wb_gains": ("WB gains", stage_stub_identity),
-        "demosaic": ("Demosaic", stage_demosaic_stub),
+        "wb_gains": ("WB gains", stage_wb_gains),
+        "demosaic": ("Demosaic", stage_demosaic),
         "denoise": ("Denoise", stage_stub_identity),
         "ccm": ("CCM", stage_stub_identity),
         "stats_3a": ("3A stats", stage_stub_identity),

@@ -48,3 +48,15 @@ LSC (lsc): implement a deterministic radial gain map g(r)=1+k*(r/R)^2 (or equiva
 Constraints: keep run-folder layout + manifest.json schema unchanged; do not edit docs; minimal deps; keep artifacts consistent; pytest -q must pass. Do not add new pipeline modes (stay within existing classic). Keep PNG bootstrap working (M1 still passes).
 Tests: (1) inject defects then verify DPC fixes exactly those pixels (and n_fixed==N), (2) verify LSC gain never exceeds gain_cap and is radially symmetric.
 Deliverables: end with (1) one command to install dev/test deps, (2) one command to run pytest -q, and (3) one command to run the pipeline (classic mode).
+---
+
+## M4 — WB + demosaic
+
+### Final prompt
+Milestone M4 (v0.1): WB + demosaic (RAW→linear RGB).
+Implement wb_gains and demosaic per docs/roadmap.md and docs/stage_contracts.md.
+wb_gains: apply gains in RAW mosaic domain for meta.cfa_pattern="RGGB" (R at [0,0], Gr at [0,1], Gb at [1,0], B at [1,1]; apply the G gain to both green sites). Set meta.wb_gains=[r,g,b] and meta.wb_applied=true. Required debug fields: wb_gains, wb_applied (and min/max after WB if already reporting stats).
+demosaic: convert RAW_BAYER_F32 → RGB_LINEAR_F32 with demosaic.method: bilinear|malvar (v0.1 default = bilinear; implement malvar if feasible, otherwise wire the enum and raise a clear “not implemented” error when selected). For bilinear, define border handling as edge-clamp (replicate nearest valid pixel) for deterministic behavior. Output must be float32 with shape H×W×3. Be explicit about range handling (no-clip or clip; if clip, record clip_applied=true/false and clip range in debug). Required debug fields: method, clip_applied (plus any existing min/max/p01/p99 stats).
+Tests: verify WB on a small synthetic mosaic (known values → expected scaled values). Verify demosaic output shape/dtype for both methods; for bilinear, also sanity-check values are within a reasonable range and border behavior is deterministic. Ensure required debug fields are present.
+Constraints: keep run-folder layout + manifest.json schema unchanged; do not edit docs; minimal deps; pytest -q must pass.
+Deliverables: end with commands to install dev/test deps, run pytest -q, and run the pipeline (classic mode).
