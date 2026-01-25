@@ -630,6 +630,32 @@ def stage_oetf_encode(frame: Frame, params: Dict[str, Any]) -> StageResult:
     }
     return StageResult(frame=Frame(image=encoded_u8, meta=dict(frame.meta)), metrics=metrics)
 
+
+def stage_drc_plus_color(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    method = str(params.get("method", "wrapper")).lower()
+    if method != "wrapper":
+        raise ValueError(f"Unknown drc_plus_color method: {method}")
+
+    tone_params = params.get("tone", {})
+    color_params = params.get("color_adjust", {})
+
+    tone_result = stage_tone(frame, tone_params)
+    color_result = stage_color_adjust(tone_result.frame, color_params)
+
+    metrics = {
+        "method": method,
+        "expands_to": ["tone", "color_adjust"],
+        "tone": {
+            "method": tone_result.metrics.get("method"),
+            "params": tone_params,
+        },
+        "color_adjust": {
+            "method": color_result.metrics.get("method"),
+            "params": color_params,
+        },
+    }
+    return StageResult(frame=color_result.frame, metrics=metrics)
+
 def stage_oetf_encode_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
     # Pass-through; final encoding happens in runner
     return StageResult(frame=_copy_frame(frame), metrics={"encoding": "srgb", "bit_depth": 8})
@@ -650,7 +676,7 @@ def build_stage(name: str) -> Stage:
         "sharpen": ("Sharpen", stage_sharpen),
         "oetf_encode": ("OETF encode", stage_oetf_encode),
         "jdd_raw2rgb": ("JDD raw2rgb", stage_jdd_raw2rgb),
-        "drc_plus_color": ("DRC + color", stage_stub_identity),
+        "drc_plus_color": ("DRC + color", stage_drc_plus_color),
     }
     if name not in mapping:
         raise ValueError(f"Unknown stage: {name}")

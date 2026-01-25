@@ -174,3 +174,16 @@ Tests:
 4. oetf_encode: oetf=srgb returns uint8 in [0,255], and clipping is recorded.
 
 Deliverables: end with commands to (1) install dev/test deps, (2) run pytest -q, and (3) run the pipeline in classic mode.
+
+---
+
+## M8 — drc_plus curated composite
+
+### Final prompt
+Milestone M8 (v0.1): drc_plus curated composite.
+
+- Implement drc_plus_color to replace tone + color_adjust in pipeline_mode: drc_plus per docs/pipeline.md and docs/stage_contracts.md. The composite must reuse the existing tone and color_adjust code paths internally (wrapper/composition: call tone then color_adjust) and preserve I/O contracts: input RGB_LINEAR_F32, output RGB_LINEAR_F32. Add drc_plus_color.method: wrapper (v0.1 default) and pass through nested params for tone and color_adjust.
+- Debug requirements: debug.json must include stage, method, expands_to: ["tone","color_adjust"], nested summaries (tone.method/params, color_adjust.method/params), and (optional) timing_breakdown_ms for the two sub-steps.
+- Constraints: keep run-folder layout + manifest.json schema unchanged; do not edit docs; minimal deps; pytest -q must pass; PNG bootstrap working.
+- Tests: (1) pipeline_mode=drc_plus runs end-to-end and produces required artifacts for every stage; (2) drc_plus_color output matches sequential tone→color_adjust on a synthetic RGB_LINEAR_F32 input (use tight np.allclose).
+- Deliverables: end with commands to run tests and run the pipeline in drc_plus mode.
