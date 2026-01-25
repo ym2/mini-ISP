@@ -1,0 +1,50 @@
+# Prompts
+
+This file logs the **final milestone prompts** (and any important **patch prompts**) used with **Codex (or any coding agent)**.
+
+---
+
+## M1 — Bootstrap runnable pipeline
+
+### Final prompt
+Implement a repo skeleton + a runnable pipeline runner that produces a run folder + `manifest.json` + a static viewer from a PNG input.  
+Only `raw_norm` is real; all other stages are explicit stubs that still dump required artifacts (`preview.png`, `debug.json`, `timing_ms.json`, and `roi.png` when enabled).  
+Follow `docs/artifacts_and_viewer.md`, `docs/stage_contracts.md`, `docs/pipeline.md`. Do not edit docs.  
+Keep dependencies minimal (prefer numpy, PyYAML, and Pillow/imageio; avoid rawpy/torch/opencv).  
+No internet downloads—if `data/sample.png` is missing, generate it deterministically (e.g., gradient + color bars) and save it under `data/`.  
+End by giving one command that runs successfully and produces the expected `runs/<run_id>/` layout + viewer.
+
+### Patch prompt
+Please do a quick M1 sanity pass on `raw_norm` and patch only what’s necessary (do not edit docs).  
+Check 1: `raw_norm` output must be a 2D `np.float32` Bayer mosaic with values roughly in `[0,1]` (clip if needed).  
+Check 2: ensure `meta.cfa_pattern` is set (default `"RGGB"` for PNG bootstrap) and propagated consistently (stage debug + manifest input).  
+If either check fails, make the minimal code changes and add minimal debug fields in `00_raw_norm/debug.json` to confirm: `dtype`, `shape`, `min`, `max` (keep existing `p01/p99`).  
+No new dependencies; no change to run folder schema.  
+End by telling me the exact command to run and which file(s) to inspect to verify both checks.
+
+---
+
+## M2 — Stage interface + artifacts helpers + smoke test
+
+### Final prompt
+Milestone M2 (v0.1): Stage interface + artifacts helpers + smoke test.  
+Implement M2 per `docs/roadmap.md`: introduce a formal stage interface (typed I/O + `run()` contract) and small artifacts helper utilities (write `preview/roi/debug/timing` consistently).  
+Add a basic end-to-end smoke test that passes with `pytest -q`.  
+Constraints: keep current runtime behavior and run-folder layout unchanged; do not edit docs; keep dependencies minimal (no new heavy deps).  
+Do not change `manifest.json` schema or viewer paths.  
+Ensure every v0.1 stage (including stubs) emits required artifacts: `preview.png`, `debug.json`, `timing_ms.json`, and `roi.png` when ROI is enabled.  
+Testing setup: `pytest` is not installed yet — add dev test dependency support (prefer `requirements-dev.txt`) without bloating runtime deps.  
+Deliverables: end with (1) one command to install test deps, (2) one command to run tests, and (3) one command to run the pipeline.
+
+---
+
+## M3 — RAW-domain DPC + LSC
+
+### Final prompt
+Milestone M3 (v0.1): RAW-domain DPC + LSC.
+Implement M3 per docs/roadmap.md: add real dpc and lsc stages operating on RAW_BAYER_F32.
+DPC (dpc): implement median-of-neighbors on the RAW mosaic using a 3×3 window excluding the center pixel; for borders, either skip correction or use edge-clamped neighbors (choose one and keep deterministic). Add a tests-only defect injection helper that flips N known coordinates to 0 or 1. Report n_fixed in debug.json.
+LSC (lsc): implement a deterministic radial gain map g(r)=1+k*(r/R)^2 (or equivalent monotonic radial falloff), capped by gain_cap, applied multiplicatively in RAW domain. Report gain stats (min/max/mean) in debug.json. Be explicit about output range handling: keep float32; if clipping to [0,1] is used, state it in debug.
+Constraints: keep run-folder layout + manifest.json schema unchanged; do not edit docs; minimal deps; keep artifacts consistent; pytest -q must pass. Do not add new pipeline modes (stay within existing classic). Keep PNG bootstrap working (M1 still passes).
+Tests: (1) inject defects then verify DPC fixes exactly those pixels (and n_fixed==N), (2) verify LSC gain never exceeds gain_cap and is radially symmetric.
+Deliverables: end with (1) one command to install dev/test deps, (2) one command to run pytest -q, and (3) one command to run the pipeline (classic mode).

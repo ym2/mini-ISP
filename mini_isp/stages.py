@@ -73,6 +73,79 @@ def stage_stub_identity(frame: Frame, params: Dict[str, Any]) -> StageResult:
     return StageResult(frame=_copy_frame(frame), metrics={})
 
 
+def inject_defects_for_test(
+    mosaic: np.ndarray, coords: Tuple[Tuple[int, int], ...], values: Tuple[float, ...]
+) -> np.ndarray:
+    """Tests-only helper: inject deterministic defects at known coordinates."""
+    if len(coords) != len(values):
+        raise ValueError("coords and values length must match")
+    out = np.array(mosaic, copy=True)
+    h, w = out.shape[:2]
+    for (y, x), value in zip(coords, values):
+        if 0 <= y < h and 0 <= x < w:
+            out[y, x] = value
+    return out
+
+
+def stage_dpc(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    # Median-of-neighbors (3x3 excluding center), edge-clamped borders
+    image = frame.image.astype(np.float32)
+    if image.ndim != 2:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "dpc expects RAW mosaic"})
+    threshold = float(params.get("threshold", 0.2))
+    padded = np.pad(image, 1, mode="edge")
+    h, w = image.shape
+    neighbors = [
+        padded[0:h, 0:w],
+        padded[0:h, 1 : w + 1],
+        padded[0:h, 2 : w + 2],
+        padded[1 : h + 1, 0:w],
+        padded[1 : h + 1, 2 : w + 2],
+        padded[2 : h + 2, 0:w],
+        padded[2 : h + 2, 1 : w + 1],
+        padded[2 : h + 2, 2 : w + 2],
+    ]
+    median = np.median(np.stack(neighbors, axis=0), axis=0).astype(np.float32)
+    diff = np.abs(image - median)
+    mask = diff > threshold
+    corrected = np.where(mask, median, image).astype(np.float32)
+    metrics = {
+        "n_fixed": int(np.sum(mask)),
+        "threshold": threshold,
+        "min_before": float(np.min(image)),
+        "max_before": float(np.max(image)),
+        "min_after": float(np.min(corrected)),
+        "max_after": float(np.max(corrected)),
+    }
+    return StageResult(frame=Frame(image=corrected, meta=dict(frame.meta)), metrics=metrics)
+
+
+def stage_lsc(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 2:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "lsc expects RAW mosaic"})
+    gain_cap = float(params.get("gain_cap", 2.0))
+    k = float(params.get("k", 0.5))
+    h, w = image.shape
+    cy = (h - 1) / 2.0
+    cx = (w - 1) / 2.0
+    yy, xx = np.mgrid[0:h, 0:w]
+    r = np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2)
+    r_max = float(np.max(r)) if np.max(r) > 0 else 1.0
+    gain = 1.0 + k * (r / r_max) ** 2
+    gain = np.minimum(gain, gain_cap).astype(np.float32)
+    corrected = (image * gain).astype(np.float32)
+    metrics = {
+        "gain_min": float(np.min(gain)),
+        "gain_max": float(np.max(gain)),
+        "gain_mean": float(np.mean(gain)),
+        "gain_cap": gain_cap,
+        "k": k,
+        "clipped": False,
+    }
+    return StageResult(frame=Frame(image=corrected, meta=dict(frame.meta)), metrics=metrics)
+
+
 def stage_demosaic_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
     # Simple placeholder: replicate mosaic into 3 channels
     if frame.image.ndim == 2:
@@ -90,8 +163,8 @@ def stage_oetf_encode_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
 def build_stage(name: str) -> Stage:
     mapping: Dict[str, Tuple[str, Callable[[Frame, Dict[str, Any]], StageResult]]] = {
         "raw_norm": ("RAW normalize", stage_raw_norm),
-        "dpc": ("DPC", stage_stub_identity),
-        "lsc": ("LSC", stage_stub_identity),
+        "dpc": ("DPC", stage_dpc),
+        "lsc": ("LSC", stage_lsc),
         "wb_gains": ("WB gains", stage_stub_identity),
         "demosaic": ("Demosaic", stage_demosaic_stub),
         "denoise": ("Denoise", stage_stub_identity),
