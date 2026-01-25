@@ -3,18 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import time
 from datetime import datetime
 from typing import Any, Dict, List
 
 import numpy as np
 
+from .artifacts import write_stage_artifacts
 from .io_utils import (
     Frame,
-    downscale_max_side,
     ensure_dir,
     load_png_as_rgb,
-    roi_crop,
     save_png,
     to_display_u8,
     write_json,
@@ -129,10 +127,6 @@ def stage_dir_name(index: int, stage_name: str) -> str:
     return f"{index:02d}_{stage_name}"
 
 
-def build_preview_image(frame: Frame) -> np.ndarray:
-    return to_display_u8(frame.image)
-
-
 def run_pipeline(config: Dict[str, Any]) -> str:
     input_path = config["input"]["path"]
     maybe_generate_sample(input_path)
@@ -186,27 +180,19 @@ def run_pipeline(config: Dict[str, Any]) -> str:
                 "white_level": meta.get("white_level"),
             }
 
-        result, timing_ms = timed_call(stage.func, frame, stage_config)
+        result, timing_ms = timed_call(stage.run, frame, stage_config)
         frame = result.frame
 
         if should_dump_stage(config, stage.name):
-            preview = build_preview_image(frame)
-            preview = downscale_max_side(preview, config["dump"]["preview_max_side"])
-            save_png(os.path.join(stage_root, "preview.png"), preview)
-
-            if config["dump"]["roi"]["enable"]:
-                roi = roi_crop(preview, tuple(config["dump"]["roi"]["xywh"]))
-                save_png(os.path.join(stage_root, "roi.png"), roi)
-
-            debug = {
-                "stage": stage.name,
-                "params": stage_config,
-                "metrics": result.metrics,
-                "warnings": [],
-                "notes": [],
-            }
-            write_json(os.path.join(stage_root, "debug.json"), debug)
-            write_json(os.path.join(stage_root, "timing_ms.json"), {"timing_ms": timing_ms})
+            write_stage_artifacts(
+                stage_root=stage_root,
+                stage_name=stage.name,
+                image=frame.image,
+                stage_params=stage_config,
+                metrics=result.metrics,
+                timing_ms=timing_ms,
+                dump_config=config["dump"],
+            )
 
         artifacts = {
             "preview": f"stages/{stage_dir}/preview.png",

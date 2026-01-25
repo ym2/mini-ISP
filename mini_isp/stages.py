@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Callable, Tuple
+from typing import Any, Dict, Callable, Tuple, Protocol
 
 import numpy as np
 
@@ -15,11 +15,22 @@ class StageResult:
     metrics: Dict[str, Any]
 
 
+class StageInterface(Protocol):
+    name: str
+    display_name: str
+
+    def run(self, frame: Frame, params: Dict[str, Any]) -> StageResult:
+        ...
+
+
 @dataclass
 class Stage:
     name: str
     display_name: str
     func: Callable[[Frame, Dict[str, Any]], StageResult]
+
+    def run(self, frame: Frame, params: Dict[str, Any]) -> StageResult:
+        return self.func(frame, params)
 
 
 def _copy_frame(frame: Frame) -> Frame:
