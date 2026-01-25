@@ -324,6 +324,149 @@ def stage_denoise(frame: Frame, params: Dict[str, Any]) -> StageResult:
     return StageResult(frame=Frame(image=out, meta=dict(frame.meta)), metrics=metrics)
 
 
+def _apply_ccm(image: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    h, w, _ = image.shape
+    flat = image.reshape(-1, 3)
+    out = flat @ matrix.T
+    return out.reshape(h, w, 3).astype(np.float32)
+
+
+def stage_ccm(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "ccm expects RGB image"})
+
+    mode = str(params.get("mode", "identity")).lower()
+    if mode == "identity":
+        matrix = np.eye(3, dtype=np.float32)
+    elif mode == "manual":
+        matrix = np.array(params.get("matrix", np.eye(3)), dtype=np.float32)
+        if matrix.shape != (3, 3):
+            raise ValueError("ccm manual mode requires a 3x3 matrix")
+    elif mode == "profile":
+        # Stub: fall back to identity
+        matrix = np.eye(3, dtype=np.float32)
+    else:
+        raise ValueError(f"Unknown ccm mode: {mode}")
+
+    out = _apply_ccm(image, matrix)
+
+    clip_applied = False
+    clip_range = None
+    clip = params.get("clip", None)
+    if clip is not None:
+        lo, hi = float(clip[0]), float(clip[1])
+        out = np.clip(out, lo, hi).astype(np.float32)
+        clip_applied = True
+        clip_range = [lo, hi]
+
+    metrics = {
+        "mode": mode,
+        "matrix": matrix.tolist(),
+        "clip_applied": clip_applied,
+        "clip_range": clip_range,
+        "min": float(np.min(out)),
+        "max": float(np.max(out)),
+        "p01": float(np.percentile(out, 1.0)),
+        "p99": float(np.percentile(out, 99.0)),
+    }
+    if mode == "profile":
+        metrics["warnings"] = ["profile mode not implemented; used identity"]
+
+    meta = dict(frame.meta)
+    meta["ccm"] = matrix.tolist()
+    meta["ccm_mode"] = mode
+    return StageResult(frame=Frame(image=out, meta=meta), metrics=metrics)
+
+
+def _sobel_edges(luma: np.ndarray) -> np.ndarray:
+    # Edge-clamped Sobel gradients
+    padded = np.pad(luma, 1, mode="edge")
+    gx = (
+        -1 * padded[:-2, :-2]
+        + 1 * padded[:-2, 2:]
+        - 2 * padded[1:-1, :-2]
+        + 2 * padded[1:-1, 2:]
+        - 1 * padded[2:, :-2]
+        + 1 * padded[2:, 2:]
+    )
+    gy = (
+        -1 * padded[:-2, :-2]
+        - 2 * padded[:-2, 1:-1]
+        - 1 * padded[:-2, 2:]
+        + 1 * padded[2:, :-2]
+        + 2 * padded[2:, 1:-1]
+        + 1 * padded[2:, 2:]
+    )
+    return gx, gy
+
+
+def _center_crop(image: np.ndarray, frac: float = 0.5) -> np.ndarray:
+    h, w = image.shape[:2]
+    ch = int(round(h * frac))
+    cw = int(round(w * frac))
+    y0 = (h - ch) // 2
+    x0 = (w - cw) // 2
+    return image[y0 : y0 + ch, x0 : x0 + cw]
+
+
+def stage_stats_3a(frame: Frame, params: Dict[str, Any]) -> StageResult:
+    image = frame.image.astype(np.float32)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return StageResult(frame=_copy_frame(frame), metrics={"warning": "stats_3a expects RGB image"})
+
+    r = image[:, :, 0]
+    g = image[:, :, 1]
+    b = image[:, :, 2]
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    # AE stats
+    luma_clipped = np.clip(luma, 0.0, 1.0)
+    hist, bin_edges = np.histogram(luma_clipped, bins=64, range=(0.0, 1.0))
+    clip_pct = float(np.mean((luma <= 0.0) | (luma >= 1.0)) * 100.0)
+    ae_stats = {
+        "mean": float(np.mean(luma)),
+        "p01": float(np.percentile(luma, 1.0)),
+        "p99": float(np.percentile(luma, 99.0)),
+        "clip_pct": clip_pct,
+        "hist": hist.tolist(),
+        "hist_bins": bin_edges.tolist(),
+    }
+
+    # AWB stats
+    awb_stats = {
+        "mean_r": float(np.mean(r)),
+        "mean_g": float(np.mean(g)),
+        "mean_b": float(np.mean(b)),
+    }
+
+    # AF stats (Tenengrad on ROI or center crop)
+    roi_cfg = params.get("roi", {})
+    if roi_cfg.get("enable", False):
+        xywh = roi_cfg.get("xywh", [0.35, 0.35, 0.30, 0.30])
+        x, y, w, h = xywh
+        hh, ww = luma.shape
+        x0 = int(round(np.clip(x, 0.0, 1.0) * ww))
+        y0 = int(round(np.clip(y, 0.0, 1.0) * hh))
+        x1 = int(round(np.clip(x + w, 0.0, 1.0) * ww))
+        y1 = int(round(np.clip(y + h, 0.0, 1.0) * hh))
+        x1 = max(x1, x0 + 1)
+        y1 = max(y1, y0 + 1)
+        roi = luma[y0:y1, x0:x1]
+        roi_used = "config"
+    else:
+        roi = _center_crop(luma, 0.5)
+        roi_used = "center_crop"
+    gx, gy = _sobel_edges(roi)
+    tenengrad = float(np.mean(gx * gx + gy * gy))
+    af_stats = {"tenengrad": tenengrad, "roi": roi_used}
+
+    stats_3a = {"ae": ae_stats, "awb": awb_stats, "af": af_stats}
+    metrics = {"stats_3a": stats_3a}
+
+    meta = dict(frame.meta)
+    meta["stats_3a"] = stats_3a
+    return StageResult(frame=Frame(image=np.array(frame.image, copy=True), meta=meta), metrics=metrics)
 def stage_jdd_raw2rgb(frame: Frame, params: Dict[str, Any]) -> StageResult:
     method = str(params.get("method", "wrapper")).lower()
     if method != "wrapper":
@@ -362,8 +505,8 @@ def build_stage(name: str) -> Stage:
         "wb_gains": ("WB gains", stage_wb_gains),
         "demosaic": ("Demosaic", stage_demosaic),
         "denoise": ("Denoise", stage_denoise),
-        "ccm": ("CCM", stage_stub_identity),
-        "stats_3a": ("3A stats", stage_stub_identity),
+        "ccm": ("CCM", stage_ccm),
+        "stats_3a": ("3A stats", stage_stats_3a),
         "tone": ("Tone", stage_stub_identity),
         "color_adjust": ("Color adjust", stage_stub_identity),
         "sharpen": ("Sharpen", stage_stub_identity),
