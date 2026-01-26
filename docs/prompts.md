@@ -298,3 +298,61 @@ Tests:
 Deliverables:
 - (1) one command to run the init copy
 - (2) one command to run pytest -q
+
+---
+
+## v0.2-M2 — Stage-diff metrics + diagnostics outputs
+
+### Final prompt
+v0.2-M2 — Stage-diff metrics + diagnostics outputs.
+Implement optional metrics/diagnostics outputs without changing manifest.json or existing viewer paths. When enabled, write additive files under each stage folder at stages/<nn>_<name>/extra/.
+Outputs (when enabled):
+	•	extra/metrics.json: per-stage metrics computed from that stage’s preview.png (v0.2-M2 uses preview domain only). Include: min/max/p01/p99, clip_pct, luma mean, chroma means (define luma as Rec.709 on preview RGB; chroma can be simple (R−G, B−G) means).
+	•	extra/diff_metrics.json: metrics between this stage’s preview.png and the previous stage in the emitted stage list (successive folders). Include L1, L2, and PSNR (optional if cheap).
+	•	extra/diagnostics/ containing optional PNG/JSON diagnostics derived from preview images (proxy implementations are fine but must be deterministic):
+	•	false-color map (chroma magnitude or chroma diff vs prev)
+	•	zipper proxy (high-frequency chroma energy map/score)
+	•	halo/ringing proxy (edge overshoot proxy map/score)
+Constraints: keep run-folder layout and manifest.json schema unchanged; no heavy deps; no build tooling; no doc edits; metrics/diagnostics are optional/additive; deterministic outputs only.
+Tests: run a small synthetic pipeline with metrics+diagnostics enabled; assert expected files exist and required keys exist; verify determinism by running twice and comparing JSON contents (and optionally file hashes); pytest -q passes.
+Deliverables: one command to run tests; one command to run the pipeline with metrics/diagnostics enabled.
+
+### Patch prompt — CLI overrides for metrics/diagnostics (preview-only)
+Task:
+	•	add CLI overrides to python -m mini_isp.run so users can enable metrics/diagnostics without creating a YAML file
+	•	keep existing --config behavior unchanged; overrides must merge on top of loaded/default config
+
+New CLI flags:
+	•	--enable-metrics (bool; default false)
+	•	--enable-diagnostics (bool; default false)
+	•	--metrics-target with choices preview|linear|both (default preview)
+	•	--metrics-diff with choices off|l1|l2|psnr|all (default l1)
+	•	--metrics-out with choices stage_root|extra (default extra)
+	•	stage_root → stages/<nn>_<name>/metrics.json
+	•	extra → stages/<nn>_<name>/extra/metrics.json
+
+Behavior:
+	•	if --enable-metrics is set, enable metrics in the resolved config
+	•	if --enable-diagnostics is set, enable diagnostics in the resolved config
+	•	these flags must work when --config is omitted
+	•	preview-only for this milestone: if --metrics-target is linear or both, exit with a clear error like: “linear metrics not implemented yet; use –metrics-target preview”
+	•	do not require /dev/null tricks; running with no config must succeed
+
+Constraints:
+	•	do not change manifest.json schema
+	•	do not change run-folder layout or viewer paths
+	•	do not edit docs
+	•	no heavy deps; keep current deps
+	•	keep outputs deterministic
+
+Tests:
+	•	add minimal pytest that runs runner via subprocess with:
+	•	--enable-metrics --enable-diagnostics --metrics-target preview --metrics-diff l1
+	•	assert at least one stage contains expected metrics/diagnostics output at the chosen location
+	•	add one pytest that asserts --metrics-target linear fails with the expected error string
+	•	pytest -q must pass
+
+Deliverables:
+	•	command to run tests
+	•	command to run pipeline with overrides, e.g.:
+	•	python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name v02_m2_metrics --enable-metrics --enable-diagnostics

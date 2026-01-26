@@ -20,6 +20,7 @@ from .io_utils import (
 )
 from .pipeline import build_pipeline
 from .stages import timed_call
+from .metrics import build_preview_for_metrics, emit_metrics_and_diagnostics
 
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -38,7 +39,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "roi": {"enable": True, "xywh": [0.35, 0.35, 0.30, 0.30]},
         "stages": "all",
     },
-    "metrics": {"enable": True, "timing": True, "histograms": False, "deltas": False},
+    "metrics": {"enable": False, "diagnostics": False, "timing": True, "histograms": False, "deltas": False},
     "skin_mask": {"enable": False, "method": "heuristic", "dump": True},
     "stages": {},
     "viewer": {"enable": True, "title": "mini-ISP run"},
@@ -123,6 +124,14 @@ def should_dump_stage(config: Dict[str, Any], stage_name: str) -> bool:
     return stages == "all" or stage_name in stages
 
 
+def should_emit_metrics(config: Dict[str, Any]) -> bool:
+    return bool(config.get("metrics", {}).get("enable", False))
+
+
+def should_emit_diagnostics(config: Dict[str, Any]) -> bool:
+    return bool(config.get("metrics", {}).get("diagnostics", False))
+
+
 def stage_dir_name(index: int, stage_name: str) -> str:
     return f"{index:02d}_{stage_name}"
 
@@ -166,6 +175,7 @@ def run_pipeline(config: Dict[str, Any]) -> str:
 
     pipeline = build_pipeline(config["pipeline_mode"])
 
+    prev_preview = None
     for index, stage in enumerate(pipeline):
         stage_dir = stage_dir_name(index, stage.name)
         stage_root = os.path.join(run_root, "stages", stage_dir)
@@ -183,6 +193,7 @@ def run_pipeline(config: Dict[str, Any]) -> str:
         result, timing_ms = timed_call(stage.run, frame, stage_config)
         frame = result.frame
 
+        preview = None
         if should_dump_stage(config, stage.name):
             write_stage_artifacts(
                 stage_root=stage_root,
@@ -193,6 +204,18 @@ def run_pipeline(config: Dict[str, Any]) -> str:
                 timing_ms=timing_ms,
                 dump_config=config["dump"],
             )
+            preview = build_preview_for_metrics(stage_root, config)
+
+        if should_emit_metrics(config) and preview is not None:
+            emit_metrics_and_diagnostics(
+                stage_root=stage_root,
+                preview=preview,
+                prev_preview=prev_preview,
+                enable_diagnostics=should_emit_diagnostics(config),
+                metrics_out=config.get("metrics", {}).get("out", "extra"),
+            )
+        if preview is not None:
+            prev_preview = preview
 
         artifacts = {
             "preview": f"stages/{stage_dir}/preview.png",
@@ -241,6 +264,26 @@ def main() -> None:
     parser.add_argument("--out", type=str, default=None, help="Override output directory")
     parser.add_argument("--pipeline_mode", type=str, default=None, help="Override pipeline mode")
     parser.add_argument("--name", type=str, default=None, help="Override run id")
+    parser.add_argument("--enable-metrics", action="store_true", help="Enable metrics outputs")
+    parser.add_argument("--enable-diagnostics", action="store_true", help="Enable diagnostics outputs")
+    parser.add_argument(
+        "--metrics-target",
+        choices=["preview", "linear", "both"],
+        default="preview",
+        help="Metrics target domain",
+    )
+    parser.add_argument(
+        "--metrics-diff",
+        choices=["off", "l1", "l2", "psnr", "all"],
+        default="l1",
+        help="Diff metric selection",
+    )
+    parser.add_argument(
+        "--metrics-out",
+        choices=["stage_root", "extra"],
+        default="extra",
+        help="Metrics output location",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -252,6 +295,19 @@ def main() -> None:
         config["pipeline_mode"] = args.pipeline_mode
     if args.name:
         config["output"]["name"] = args.name
+
+    if args.metrics_target in ("linear", "both"):
+        raise SystemExit("linear metrics not implemented yet; use --metrics-target preview")
+
+    if args.enable_metrics:
+        config.setdefault("metrics", {})
+        config["metrics"]["enable"] = True
+        config["metrics"]["target"] = args.metrics_target
+        config["metrics"]["diff"] = args.metrics_diff
+        config["metrics"]["out"] = args.metrics_out
+    if args.enable_diagnostics:
+        config.setdefault("metrics", {})
+        config["metrics"]["diagnostics"] = True
 
     run_root = run_pipeline(config)
     print(run_root)
