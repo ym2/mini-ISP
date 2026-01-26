@@ -25,10 +25,45 @@ Each milestone should end with: **one runnable command** → a valid `runs/<run_
 - **M8 — `drc_plus` curated composite**
   - Done when: `drc_plus` runs end-to-end and reuses core tone/curve-apply code paths where possible.
 
-## v0.2 — better baselines + comparisons
-- improved denoise / diagnostics
-- diagnostics examples: false-color/zipper checks, halo/ringing checks, simple stage-diff metrics
-- side-by-side run comparison in viewer
+## v0.2 — comparisons + diagnostics + better baselines
+- make improvements *measurable* and easy to review (A/B comparison + metrics)
+- add optional diagnostics outputs (no breaking changes to v0.1 run layout)
+- upgrade a few baselines once we can compare reliably
+
+### Milestones (v0.2)
+All v0.2 work must be **backward-compatible** with v0.1 runs:
+- do **not** break `manifest.json` schema or viewer asset paths
+- any new outputs go under stage folders (e.g., `stages/<nn>_<name>/extra/`) or as additional optional JSON files
+
+- **M1 — Compare bundle + side-by-side viewer**
+  - Add a small *compare bundle* (e.g., `compare.json`) that points to two manifests (A/B), labels, and optional notes.
+  - Extend the static viewer to load **one manifest (default)** or **two manifests (compare mode)** and show side-by-side previews with synced stage selection.
+  - Done when: viewer works for single-run as before, and also compares two runs without breaking old runs.
+
+- **M2 — Stage-diff metrics + diagnostics outputs**
+  - Add simple per-stage / stage-diff metrics (e.g., L1/L2 diff on previews; optional metrics on linear buffers if available).
+  - Add optional diagnostics artifacts (examples): false-color/zipper check, halo/ringing check, simple “before/after” diffs.
+  - Done when: metrics/diagnostics are emitted only when enabled and tests assert files/keys exist (no schema break).
+
+- **M3 — Denoise upgrade (demonstrable improvement)**
+  - Improve `denoise` quality without heavy deps (e.g., separable Gaussian + optional chroma-aware pass).
+  - Done when: on deterministic synthetic noise tests, denoise improves objective error (MSE/PSNR) and still preserves dtype/shape/contracts.
+  
+- **M4 — Targeted baseline upgrades (prove improvement)**
+  - Goal: improve algorithms only after you can demonstrate benefit.
+
+  Deliverables:
+  - Denoise upgrade OR sharpen tuning (pick one first)
+  - Use compare bundle + metrics + diagnostics to show improvement
+  - Keep defaults conservative and explain via debug fields
+
+  Acceptance:
+  - Improvement shown in an A/B compare bundle
+  - No regressions in tests
+  - Still minimal deps
+
+Notes:
+- v0.2 can be built and tested using the current PNG-bootstrap runs, but validating diagnostics is easier once real RAW inputs are added later.
 
 ## v0.3 — AI-DRC option (contained)
 - `tone.method: ai_drc` (curve/LUT/coeffs)

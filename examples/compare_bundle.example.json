@@ -1,0 +1,9 @@
+{
+  "schema_version": "0.1",
+  "title": "mini-ISP compare",
+  "created_utc": "2026-01-26T00:00:00Z",
+  "a": { "label": "A", "run_dir": "runs/<idA>" },
+  "b": { "label": "B", "run_dir": "runs/<idB>" },
+  "notes": "",
+  "stage_match": { "primary": "index", "fallback": "name" }
+}

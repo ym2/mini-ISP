@@ -4,7 +4,7 @@ This file logs the **final milestone prompts** (and any important **patch prompt
 
 ---
 
-## M1 — Bootstrap runnable pipeline
+## v0.1-M1 — Bootstrap runnable pipeline
 
 ### Final prompt
 Implement a repo skeleton + a runnable pipeline runner that produces a run folder + `manifest.json` + a static viewer from a PNG input.
@@ -26,7 +26,7 @@ Please do a quick M1 sanity pass on `raw_norm` and patch only what’s necessary
 
 ---
 
-## M2 — Stage interface + artifacts helpers + smoke test
+## v0.1-M2 — Stage interface + artifacts helpers + smoke test
 
 ### Final prompt
 Milestone M2 (v0.1): Stage interface + artifacts helpers + smoke test.
@@ -41,7 +41,7 @@ Milestone M2 (v0.1): Stage interface + artifacts helpers + smoke test.
 
 ---
 
-## M3 — RAW-domain DPC + LSC
+## v0.1-M3 — RAW-domain DPC + LSC
 
 ### Final prompt
 Milestone M3 (v0.1): RAW-domain DPC + LSC.
@@ -55,7 +55,7 @@ Milestone M3 (v0.1): RAW-domain DPC + LSC.
 
 ---
 
-## M4 — WB + demosaic
+## v0.1-M4 — WB + demosaic
 
 ### Final prompt
 Milestone M4 (v0.1): WB + demosaic (RAW→linear RGB).
@@ -69,7 +69,7 @@ Milestone M4 (v0.1): WB + demosaic (RAW→linear RGB).
 
 ---
 
-## M5 — Denoise baseline + JDD composite
+## v0.1-M5 — Denoise baseline + JDD composite
 
 ### Final prompt
 Milestone M5 (v0.1): Denoise baseline + JDD composite.
@@ -84,7 +84,7 @@ Milestone M5 (v0.1): Denoise baseline + JDD composite.
 
 ---
 
-## M6 — CCM + 3A stats
+## v0.1-M6 — CCM + 3A stats
 
 ### Final prompt
 Milestone M6 (v0.1): CCM + 3A stats.
@@ -124,7 +124,7 @@ Deliverables: end with commands to (1) install dev/test deps, (2) run pytest -q,
 
 ---
 
-## M7 — Tone + color adjust + sharpen + OETF
+## v0.1-M7 — Tone + color adjust + sharpen + OETF
 
 ### Final prompt
 Milestone M7 (v0.1): Tone + color adjust + sharpen + OETF.
@@ -177,7 +177,7 @@ Deliverables: end with commands to (1) install dev/test deps, (2) run pytest -q,
 
 ---
 
-## M8 — drc_plus curated composite
+## v0.1-M8 — drc_plus curated composite
 
 ### Final prompt
 Milestone M8 (v0.1): drc_plus curated composite.
@@ -187,3 +187,114 @@ Milestone M8 (v0.1): drc_plus curated composite.
 - Constraints: keep run-folder layout + manifest.json schema unchanged; do not edit docs; minimal deps; pytest -q must pass; PNG bootstrap working.
 - Tests: (1) pipeline_mode=drc_plus runs end-to-end and produces required artifacts for every stage; (2) drc_plus_color output matches sequential tone→color_adjust on a synthetic RGB_LINEAR_F32 input (use tight np.allclose).
 - Deliverables: end with commands to run tests and run the pipeline in drc_plus mode.
+
+---
+
+## v0.2-M1 — Compare bundle + viewer A/B compare
+
+### Final prompt
+Milestone v0.2-M1: Compare bundle + viewer A/B compare (foundation).
+
+Implement a backward-compatible compare mode for the existing static viewer. Add support for loading either:
+(1) a single run manifest.json (current behavior), OR
+(2) a compare bundle JSON that points to two run folders (A and B), each containing manifest.json.
+
+Compare bundle spec (must implement exactly):
+{
+  "schema_version": "0.1",
+  "title": "...",
+  "created_utc": "...",
+  "a": { "label": "...", "run_dir": "runs/<idA>" },
+  "b": { "label": "...", "run_dir": "runs/<idB>" },
+  "notes": "...",
+  "stage_match": { "primary": "index", "fallback": "name" }
+}
+Viewer behavior:
+- If URL has ?manifest=PATH, load single manifest (unchanged behavior).
+- If URL has ?compare=PATH, load compare bundle, then load A and B manifests.
+- Show side-by-side previews (A and B) with synchronized stage selection.
+- Show per-stage timing for A and B and a delta (B - A) if available.
+- Stage matching: primarily by stage.index; if unavailable or mismatched, fallback to stage.name.
+- If a stage is missing on one side after matching, show the available side and display N/A for the missing preview/timing; delta is N/A.
+- Compare bundle path in examples: serve it under runs/compare/compare.json (or similar) and pass a server-relative path in ?compare=.
+- Constraints: keep run-folder layout and manifest.json schema unchanged (do not edit manifest.json); no heavy deps / no build tooling (keep viewer static: index.html/app.js/styles.css); do not edit docs; preserve existing single-run behavior (?manifest=) exactly.
+
+Tests:
+- Add a minimal test that validates compare bundle parsing and stage matching logic in isolation (pure Python or pure JS test—pick the lightest approach consistent with current repo).
+- pytest -q must pass.
+
+Deliverables:
+- End with (1) one command to run tests, and (2) exact commands to start a local server and open:
+- single-run mode, and
+- compare mode with a sample compare.json.
+
+### Patch prompt 1 — CLI helper to generate compare bundles
+Task:
+- add `python -m mini_isp.compare` to generate a compare bundle JSON deterministically
+
+CLI flags:
+- --a RUN_DIR_A
+- --b RUN_DIR_B
+- --out OUT_PATH
+- --label-a LABEL_A
+- --label-b LABEL_B
+- --notes NOTES            (optional; default "")
+- --title TITLE            (optional; default "mini-ISP compare")
+- --created-utc CREATED_UTC (optional; if omitted, use current UTC ISO8601)
+
+Validation:
+- require RUN_DIR_A/manifest.json exists; otherwise exit with a clear error
+- require RUN_DIR_B/manifest.json exists; otherwise exit with a clear error
+- create parent directories for OUT_PATH if needed
+
+Output schema (must match exactly):
+{
+  "schema_version": "0.1",
+  "title": "...",
+  "created_utc": "...",
+  "a": { "label": "...", "run_dir": "runs/<idA>" },
+  "b": { "label": "...", "run_dir": "runs/<idB>" },
+  "notes": "...",
+  "stage_match": { "primary": "index", "fallback": "name" }
+}
+
+Constraints:
+- do not change viewer behavior
+- do not change manifest.json schema or any run-folder layout/paths
+- do not edit docs
+- no new heavy dependencies
+
+Tests:
+- add a minimal pytest that runs the CLI with a fixed --created-utc
+- assert the generated JSON equals an expected dict (including stage_match)
+
+Deliverables:
+- (1) one command to run the CLI
+- (2) one command to run `pytest -q`
+
+### Patch prompt 2 — Example template + init copy
+Task:
+- add a tracked example file `examples/compare_bundle.example.json` that matches the compare bundle schema (with obvious placeholders)
+- add a small convenience command that copies the example to a user-specified path
+
+Behavior:
+- `python -m mini_isp.compare --init OUT_PATH`
+- copies `examples/compare_bundle.example.json` → OUT_PATH
+- creates parent dirs for OUT_PATH if needed
+- refuses to overwrite if OUT_PATH already exists (exit with a clear error)
+- prints a one-line hint showing how to use the viewer with `?compare=...`
+
+Constraints:
+- do not change viewer behavior
+- do not change manifest.json schema or any run-folder layout/paths
+- do not edit docs
+- no new heavy dependencies
+
+Tests:
+- add a minimal pytest that runs `python -m mini_isp.compare --init <tmp_path>/compare.json`
+- assert the file is created and JSON loads with required top-level keys:
+  schema_version, title, created_utc, a, b, notes, stage_match
+
+Deliverables:
+- (1) one command to run the init copy
+- (2) one command to run pytest -q

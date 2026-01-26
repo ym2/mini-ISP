@@ -25,10 +25,24 @@
               <button id="toggle-debug">Debug</button>
             </div>
           </div>
-          <img id="preview" alt="Stage preview" />
-          <div id="timing" class="timing"></div>
+          <div id="compare-grid" class="compare-grid">
+            <div class="compare-card">
+              <div class="compare-label" id="label-a">A</div>
+              <img id="preview-a" alt="Stage preview A" />
+              <div id="placeholder-a" class="placeholder hidden">N/A</div>
+              <div id="timing-a" class="timing"></div>
+            </div>
+            <div class="compare-card">
+              <div class="compare-label" id="label-b">B</div>
+              <img id="preview-b" alt="Stage preview B" />
+              <div id="placeholder-b" class="placeholder hidden">N/A</div>
+              <div id="timing-b" class="timing"></div>
+            </div>
+          </div>
+          <div id="timing-delta" class="timing timing-delta"></div>
         </div>
-        <pre id="debug" class="debug hidden"></pre>
+        <pre id="debug-a" class="debug hidden"></pre>
+        <pre id="debug-b" class="debug hidden"></pre>
       </section>
     </main>
     <script src="app.js"></script>
