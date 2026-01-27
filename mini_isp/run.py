@@ -13,6 +13,8 @@ from .io_utils import (
     Frame,
     ensure_dir,
     load_png_as_rgb,
+    load_raw_mosaic,
+    normalize_raw_mosaic,
     save_png,
     to_display_u8,
     write_json,
@@ -137,8 +139,34 @@ def stage_dir_name(index: int, stage_name: str) -> str:
     return f"{index:02d}_{stage_name}"
 
 
-def run_pipeline(config: Dict[str, Any]) -> str:
+def is_raw_path(path: str) -> bool:
+    ext = os.path.splitext(path)[1].lower()
+    return ext in {".dng", ".nef", ".cr2", ".arw", ".rw2", ".orf", ".raf", ".raw"}
+
+
+def load_input_frame(config: Dict[str, Any]) -> Frame:
     input_path = config["input"]["path"]
+    if is_raw_path(input_path):
+        mosaic, raw_meta = load_raw_mosaic(input_path, config["input"].get("bayer_pattern", "RGGB"))
+        black_level = raw_meta.get("black_level", 0.0)
+        white_level = raw_meta.get("white_level")
+        if white_level is None:
+            if np.issubdtype(mosaic.dtype, np.integer):
+                white_level = float(np.iinfo(mosaic.dtype).max)
+            else:
+                white_level = float(np.max(mosaic))
+        mosaic_norm = normalize_raw_mosaic(mosaic, float(black_level), float(white_level))
+        meta = {
+            "source_path": input_path,
+            "bit_depth": raw_meta.get("bit_depth"),
+            "black_level": float(black_level),
+            "white_level": float(white_level),
+            "cfa_pattern": raw_meta.get("cfa_pattern", config["input"].get("bayer_pattern", "RGGB")),
+            "raw_mosaic": True,
+            "input_kind": "raw",
+        }
+        return Frame(image=mosaic_norm, meta=meta)
+
     maybe_generate_sample(input_path)
     image_rgb = load_png_as_rgb(input_path)
     meta = {
@@ -147,8 +175,15 @@ def run_pipeline(config: Dict[str, Any]) -> str:
         "black_level": config["input"].get("black_level", 0),
         "white_level": config["input"].get("white_level", 255),
         "cfa_pattern": config["input"].get("bayer_pattern", "RGGB"),
+        "raw_mosaic": False,
+        "input_kind": "png",
     }
-    frame = Frame(image=image_rgb, meta=meta)
+    return Frame(image=image_rgb, meta=meta)
+
+
+def run_pipeline(config: Dict[str, Any]) -> str:
+    input_path = config["input"]["path"]
+    frame = load_input_frame(config)
 
     run_id = resolve_run_id(config["output"].get("name"))
     run_root = os.path.join(config["output"]["dir"], run_id)
@@ -165,14 +200,20 @@ def run_pipeline(config: Dict[str, Any]) -> str:
         "title": config.get("viewer", {}).get("title", "mini-ISP run"),
         "input": {
             "path": input_path,
-            "width": int(image_rgb.shape[1]),
-            "height": int(image_rgb.shape[0]),
-            "cfa_pattern": meta.get("cfa_pattern"),
+            "width": int(frame.image.shape[1]),
+            "height": int(frame.image.shape[0]),
+            "cfa_pattern": frame.meta.get("cfa_pattern"),
         },
         "pipeline_mode": config["pipeline_mode"],
         "final": {"path": "final/output.png"},
         "stages": [],
     }
+
+    if frame.meta.get("input_kind") == "raw":
+        for key in ("bit_depth", "black_level", "white_level"):
+            value = frame.meta.get(key)
+            if value is not None:
+                manifest["input"][key] = value
 
     pipeline = build_pipeline(config["pipeline_mode"])
 
@@ -186,9 +227,9 @@ def run_pipeline(config: Dict[str, Any]) -> str:
         if stage.name == "raw_norm":
             stage_config = {
                 **stage_config,
-                "cfa_pattern": meta.get("cfa_pattern"),
-                "black_level": meta.get("black_level"),
-                "white_level": meta.get("white_level"),
+                "cfa_pattern": frame.meta.get("cfa_pattern"),
+                "black_level": frame.meta.get("black_level"),
+                "white_level": frame.meta.get("white_level"),
             }
 
         result, timing_ms = timed_call(stage.run, frame, stage_config)

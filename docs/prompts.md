@@ -15,7 +15,7 @@ Implement a repo skeleton + a runnable pipeline runner that produces a run folde
 - No internet downloads—if `data/sample.png` is missing, generate it deterministically (e.g., gradient + color bars) and save it under `data/`.
 - End by giving one command that runs successfully and produces the expected `runs/<run_id>/` layout + viewer.
 
-### Patch prompt
+### Patch prompt 1
 Please do a quick M1 sanity pass on `raw_norm` and patch only what’s necessary (do not edit docs).
 
 - Check 1: `raw_norm` output must be a 2D `np.float32` Bayer mosaic with values roughly in `[0,1]` (clip if needed).
@@ -317,7 +317,7 @@ Constraints: keep run-folder layout and manifest.json schema unchanged; no heavy
 Tests: run a small synthetic pipeline with metrics+diagnostics enabled; assert expected files exist and required keys exist; verify determinism by running twice and comparing JSON contents (and optionally file hashes); pytest -q passes.
 Deliverables: one command to run tests; one command to run the pipeline with metrics/diagnostics enabled.
 
-### Patch prompt — CLI overrides for metrics/diagnostics (preview-only)
+### Patch prompt 1 — CLI overrides for metrics/diagnostics (preview-only)
 Task:
 	•	add CLI overrides to python -m mini_isp.run so users can enable metrics/diagnostics without creating a YAML file
 	•	keep existing --config behavior unchanged; overrides must merge on top of loaded/default config
@@ -482,3 +482,98 @@ Deliverables
 	•	baseline sharpen: –set stages.sharpen.method=unsharp_mask (and any baseline params you want fixed)
 	•	tuned sharpen: –set stages.sharpen.method=unsharp_mask_tuned (and tuned params)
 	•	use CLI –set overrides for A/B runs; do not require creating new YAML config files.
+
+---
+
+## v0.2-M5 — Optional real RAW/DNG input support (validation)
+
+### Final prompt
+v0.2-M5 — Optional real RAW/DNG input support (validation)
+
+Add optional RAW/DNG input loading so the pipeline can run on a true Bayer mosaic, while keeping existing PNG bootstrap behavior unchanged. RAW support must be optional (extra dependency only when used).
+
+Requirements
+
+Input modes:
+	•	if input is .png (or default), keep current PNG-bootstrap path unchanged;
+	•	if input is RAW/DNG (e.g., .dng, .nef, .cr2, .arw), load as a single-channel Bayer mosaic (2D H×W);
+
+RAW loader (rawpy):
+	•	implement a new loader path that uses rawpy (lazy import);
+	•	extract the mosaic as a 2D array (e.g., raw.raw_image_visible or raw.raw_image depending on availability);
+	•	derive bit_depth as follows (deterministic priority order):
+	1.	if rawpy exposes a reliable max value / white level (e.g., raw.white_level), compute bit_depth = ceil(log2(white_level + 1));
+	2.	else fallback to dtype bits (uint16→16, etc.);
+	•	derive meta.cfa_pattern deterministically from rawpy when available:
+	•	if raw.raw_pattern (2×2 ints) and raw.color_desc are present, map as:
+	•	desc = raw.color_desc decoded to string (e.g., “RGBG”);
+	•	pattern = 2×2 array of ints where each int indexes into desc;
+	•	convert each entry to a channel letter via desc[idx] (e.g., 0→”R”, 1→”G”, 2→”B”);
+	•	read out in row-major order to a 4-letter string (top-left, top-right, bottom-left, bottom-right), e.g., “RGGB”;
+	•	set meta.cfa_pattern to that string;
+	•	else fallback to config input.bayer_pattern (default “RGGB”);
+
+Metadata propagation:
+	•	populate meta.cfa_pattern, meta.black_level, meta.white_level, meta.bit_depth (when known);
+	•	ensure manifest.input records cfa_pattern and (when available) bit_depth, black_level, white_level for RAW inputs;
+	•	for PNG inputs, keep current behavior unchanged (these fields may be absent or null); do not break existing runs/viewer;
+
+Normalization (must be explicit and deterministic):
+	•	normalize to RAW_BAYER_F32 via:
+norm = (raw - black_level) / max(white_level - black_level, eps)
+where eps = 1e-6;
+	•	then clip to [0,1];
+	•	output dtype float32, shape H×W preserved;
+
+Dependencies:
+	•	use rawpy only when RAW is used (lazy import / optional install);
+	•	do not add rawpy to default runtime requirements; add requirements-raw.txt;
+
+Compatibility:
+	•	run-folder layout, manifest.json schema, viewer paths unchanged;
+	•	pytest -q must pass;
+	•	do not edit docs;
+
+Tests (pytest):
+	•	unit test (no rawpy): verify normalization logic on a synthetic Bayer array (dtype float32, 2D shape, range clipped [0,1], CFA fallback works);
+	•	rawpy integration test:
+	•	if rawpy not installed: skip;
+	•	if installed: mock rawpy.imread (or the context) to return deterministic mosaic + metadata (black_level/white_level/raw_pattern/color_desc); assert:
+	•	cfa_pattern is derived from raw_pattern+color_desc correctly,
+	•	normalized mosaic matches expected math + clipping,
+	•	manifest.input fields are populated as specified;
+
+Deliverables:
+	•	one command to install RAW optional dependency (pip install -r requirements-raw.txt);
+	•	one command to run pytest -q;
+	•	one command to run pipeline on a RAW/DNG input; and one command to run pipeline on PNG to show unchanged behavior.
+
+### Patch prompt 1 — BGGR/GRBG/GBRG CFA support in wb_gains (+ demosaic if needed)
+v0.2-M5 Patch — support BGGR/GRBG/GBRG CFA in wb_gains (+ demosaic if needed)
+
+Task:
+	•	Extend wb_gains to support CFA patterns RGGB, BGGR, GRBG, GBRG when operating on RAW_BAYER_F32.
+	•	If demosaic currently assumes RGGB, extend it to support the same four CFA patterns (for both bilinear and malvar if malvar exists).
+
+Rules / Constraints:
+	•	Do not change run-folder layout, manifest.json schema, viewer assets/paths.
+	•	Do not edit docs.
+	•	Keep dependencies minimal (NumPy only).
+	•	Keep PNG bootstrap behavior unchanged; CFA can remain default RGGB for PNG input.
+	•	pytest -q must pass.
+
+Implementation notes:
+	•	Implement a single CFA mapping helper (e.g., cfa_index_map(pattern)) that returns the (row_parity, col_parity) positions for R/G/B sites.
+	•	In wb_gains, apply gains by indexing into the mosaic using that mapping; apply G gain to both green sites.
+	•	In demosaic, use the same mapping to place known samples into the right channels before interpolation; keep dtype float32.
+	•	Use a fixed 2×2 parity map at the top-left: RGGB: R(0,0), Gr(0,1), Gb(1,0), B(1,1); BGGR: B(0,0), Gb(0,1), Gr(1,0), R(1,1); GRBG: Gr(0,0), R(0,1), B(1,0), Gb(1,1); GBRG: Gb(0,0), B(0,1), R(1,0), Gr(1,1); wb_gains applies G gain to both green sites.
+
+Tests:
+	•	Add unit tests for each CFA pattern:
+	1.	Build a tiny synthetic 4×4 mosaic where R/G/B sites have distinct constants; apply wb gains (e.g., r=2, g=3, b=5) and assert only the correct sites were scaled.
+	2.	Demosaic sanity: output shape H×W×3 float32; and a simple check that swapping pattern changes which channel receives which site (i.e., pattern is actually honored).
+	•	Add an integration-ish test: run the pipeline on the existing sample.dng (BGGR) if present, or mock the RAW loader to return meta.cfa_pattern=“BGGR”, and assert the pipeline completes past wb_gains.
+
+Deliverables:
+	•	One command to run tests (pytest -q).
+	•	One command to run: python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classic --name raw_demo (or with whatever RAW file you have).

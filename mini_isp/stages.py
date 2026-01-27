@@ -37,21 +37,46 @@ def _copy_frame(frame: Frame) -> Frame:
     return Frame(image=np.array(frame.image, copy=True), meta=dict(frame.meta))
 
 
+def cfa_index_map(pattern: str) -> Dict[str, Tuple[int, int]]:
+    pattern = (pattern or "RGGB").upper()
+    if len(pattern) != 4:
+        raise ValueError(f"Unsupported CFA pattern: {pattern}")
+    positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    r_positions = []
+    b_positions = []
+    g_positions = []
+    for idx, letter in enumerate(pattern):
+        if letter == "R":
+            r_positions.append(positions[idx])
+        elif letter == "B":
+            b_positions.append(positions[idx])
+        elif letter == "G":
+            g_positions.append(positions[idx])
+    if len(r_positions) != 1 or len(b_positions) != 1:
+        raise ValueError(f"Unsupported CFA pattern: {pattern}")
+    if len(g_positions) != 2:
+        raise ValueError(f"Unsupported CFA pattern: {pattern}")
+    return {"R": r_positions[0], "B": b_positions[0], "G1": g_positions[0], "G2": g_positions[1]}
+
+
 def stage_raw_norm(frame: Frame, params: Dict[str, Any]) -> StageResult:
-    # Treat input as RGB PNG and map to a pseudo-RAW mosaic for v0.1 bootstrap
-    image = frame.image.astype(np.float32) / 255.0
-    if image.ndim == 3:
-        # Luma for pseudo-mosaic intensity
-        luma = 0.2126 * image[:, :, 0] + 0.7152 * image[:, :, 1] + 0.0722 * image[:, :, 2]
+    if frame.meta.get("raw_mosaic"):
+        mosaic = frame.image.astype(np.float32)
     else:
-        luma = image
-    h, w = luma.shape
-    mosaic = np.zeros((h, w), dtype=np.float32)
-    mosaic[0::2, 0::2] = luma[0::2, 0::2]  # R
-    mosaic[0::2, 1::2] = luma[0::2, 1::2]  # G
-    mosaic[1::2, 0::2] = luma[1::2, 0::2]  # G
-    mosaic[1::2, 1::2] = luma[1::2, 1::2]  # B
-    mosaic = np.clip(mosaic, 0.0, 1.0).astype(np.float32)
+        # Treat input as RGB PNG and map to a pseudo-RAW mosaic for v0.1 bootstrap
+        image = frame.image.astype(np.float32) / 255.0
+        if image.ndim == 3:
+            # Luma for pseudo-mosaic intensity
+            luma = 0.2126 * image[:, :, 0] + 0.7152 * image[:, :, 1] + 0.0722 * image[:, :, 2]
+        else:
+            luma = image
+        h, w = luma.shape
+        mosaic = np.zeros((h, w), dtype=np.float32)
+        mosaic[0::2, 0::2] = luma[0::2, 0::2]  # R
+        mosaic[0::2, 1::2] = luma[0::2, 1::2]  # G
+        mosaic[1::2, 0::2] = luma[1::2, 0::2]  # G
+        mosaic[1::2, 1::2] = luma[1::2, 1::2]  # B
+        mosaic = np.clip(mosaic, 0.0, 1.0).astype(np.float32)
 
     meta = dict(frame.meta)
     meta.setdefault("cfa_pattern", params.get("cfa_pattern", "RGGB"))
@@ -152,15 +177,18 @@ def stage_wb_gains(frame: Frame, params: Dict[str, Any]) -> StageResult:
         return StageResult(frame=_copy_frame(frame), metrics={"warning": "wb_gains expects RAW mosaic"})
     meta = dict(frame.meta)
     cfa = meta.get("cfa_pattern", "RGGB")
-    if cfa != "RGGB":
-        raise ValueError(f"wb_gains only supports RGGB in v0.1 (got {cfa})")
+    cfa_map = cfa_index_map(cfa)
     gains = params.get("wb_gains", params.get("gains", [1.0, 1.0, 1.0]))
     r_gain, g_gain, b_gain = [float(x) for x in gains]
     out = np.array(image, copy=True, dtype=np.float32)
-    out[0::2, 0::2] *= r_gain  # R
-    out[0::2, 1::2] *= g_gain  # Gr
-    out[1::2, 0::2] *= g_gain  # Gb
-    out[1::2, 1::2] *= b_gain  # B
+    r_pos = cfa_map["R"]
+    b_pos = cfa_map["B"]
+    g1_pos = cfa_map["G1"]
+    g2_pos = cfa_map["G2"]
+    out[r_pos[0]::2, r_pos[1]::2] *= r_gain
+    out[b_pos[0]::2, b_pos[1]::2] *= b_gain
+    out[g1_pos[0]::2, g1_pos[1]::2] *= g_gain
+    out[g2_pos[0]::2, g2_pos[1]::2] *= g_gain
     meta["wb_gains"] = [r_gain, g_gain, b_gain]
     meta["wb_applied"] = True
     metrics = {
@@ -172,14 +200,19 @@ def stage_wb_gains(frame: Frame, params: Dict[str, Any]) -> StageResult:
     return StageResult(frame=Frame(image=out, meta=meta), metrics=metrics)
 
 
-def _demosaic_bilinear_rggb(mosaic: np.ndarray) -> np.ndarray:
+def _demosaic_bilinear(mosaic: np.ndarray, cfa_pattern: str) -> np.ndarray:
     mosaic = mosaic.astype(np.float32)
     h, w = mosaic.shape
     yy, xx = np.mgrid[0:h, 0:w]
-    r_mask = (yy % 2 == 0) & (xx % 2 == 0)
-    b_mask = (yy % 2 == 1) & (xx % 2 == 1)
-    g1_mask = (yy % 2 == 0) & (xx % 2 == 1)  # Gr
-    g2_mask = (yy % 2 == 1) & (xx % 2 == 0)  # Gb
+    cfa_map = cfa_index_map(cfa_pattern)
+    r_pos = cfa_map["R"]
+    b_pos = cfa_map["B"]
+    g1_pos = cfa_map["G1"]
+    g2_pos = cfa_map["G2"]
+    r_mask = (yy % 2 == r_pos[0]) & (xx % 2 == r_pos[1])
+    b_mask = (yy % 2 == b_pos[0]) & (xx % 2 == b_pos[1])
+    g1_mask = (yy % 2 == g1_pos[0]) & (xx % 2 == g1_pos[1])
+    g2_mask = (yy % 2 == g2_pos[0]) & (xx % 2 == g2_pos[1])
 
     padded = np.pad(mosaic, 1, mode="edge")
     c = padded[1:-1, 1:-1]
@@ -209,10 +242,20 @@ def _demosaic_bilinear_rggb(mosaic: np.ndarray) -> np.ndarray:
     g[b_mask] = 0.25 * (n[b_mask] + s[b_mask] + wv[b_mask] + e[b_mask])
 
     # R/B at green sites (directional)
-    r[g1_mask] = 0.5 * (wv[g1_mask] + e[g1_mask])
-    b[g1_mask] = 0.5 * (n[g1_mask] + s[g1_mask])
-    r[g2_mask] = 0.5 * (n[g2_mask] + s[g2_mask])
-    b[g2_mask] = 0.5 * (wv[g2_mask] + e[g2_mask])
+    g1_on_r_row = g1_pos[0] == r_pos[0]
+    g2_on_r_row = g2_pos[0] == r_pos[0]
+    if g1_on_r_row:
+        r[g1_mask] = 0.5 * (wv[g1_mask] + e[g1_mask])
+        b[g1_mask] = 0.5 * (n[g1_mask] + s[g1_mask])
+    else:
+        r[g1_mask] = 0.5 * (n[g1_mask] + s[g1_mask])
+        b[g1_mask] = 0.5 * (wv[g1_mask] + e[g1_mask])
+    if g2_on_r_row:
+        r[g2_mask] = 0.5 * (wv[g2_mask] + e[g2_mask])
+        b[g2_mask] = 0.5 * (n[g2_mask] + s[g2_mask])
+    else:
+        r[g2_mask] = 0.5 * (n[g2_mask] + s[g2_mask])
+        b[g2_mask] = 0.5 * (wv[g2_mask] + e[g2_mask])
 
     return np.stack([r, g, b], axis=2).astype(np.float32)
 
@@ -222,10 +265,11 @@ def stage_demosaic(frame: Frame, params: Dict[str, Any]) -> StageResult:
     if image.ndim != 2:
         return StageResult(frame=_copy_frame(frame), metrics={"warning": "demosaic expects RAW mosaic"})
     method = str(params.get("method", "bilinear")).lower()
+    cfa = frame.meta.get("cfa_pattern", "RGGB")
     clip_applied = False
     clip_range = None
     if method == "bilinear":
-        rgb = _demosaic_bilinear_rggb(image)
+        rgb = _demosaic_bilinear(image, cfa)
     elif method == "malvar":
         raise NotImplementedError("demosaic method 'malvar' is not implemented in v0.1")
     else:
@@ -243,7 +287,7 @@ def stage_demosaic(frame: Frame, params: Dict[str, Any]) -> StageResult:
         "max": float(np.max(rgb)),
         "p01": float(np.percentile(rgb, 1.0)),
         "p99": float(np.percentile(rgb, 99.0)),
-        "resolved_params": {"method": method, "clip": bool(params.get("clip", False))},
+        "resolved_params": {"method": method, "clip": bool(params.get("clip", False)), "cfa_pattern": cfa},
     }
     return StageResult(frame=Frame(image=rgb, meta=dict(frame.meta)), metrics=metrics)
 

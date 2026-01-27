@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
 import numpy as np
 from PIL import Image
@@ -83,3 +83,82 @@ def write_yaml(path: str, data: Dict[str, Any]) -> None:
         # Fallback: write JSON when PyYAML is unavailable
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, sort_keys=False)
+
+
+def derive_cfa_pattern(
+    raw_pattern: Optional[np.ndarray], color_desc: Optional[Any], fallback: str
+) -> str:
+    if raw_pattern is None or color_desc is None:
+        return fallback
+    pattern = np.asarray(raw_pattern)
+    if pattern.shape != (2, 2):
+        return fallback
+    if isinstance(color_desc, bytes):
+        desc = color_desc.decode(errors="ignore")
+    elif hasattr(color_desc, "tobytes"):
+        desc = color_desc.tobytes().decode(errors="ignore")
+    else:
+        desc = str(color_desc)
+    desc = desc.strip()
+    if not desc:
+        return fallback
+    try:
+        letters = "".join(desc[int(idx)] for idx in pattern.flatten())
+    except Exception:
+        return fallback
+    return letters
+
+
+def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str, Any]]:
+    try:
+        import rawpy  # type: ignore
+    except Exception as exc:
+        raise RuntimeError("rawpy is required to load RAW/DNG inputs") from exc
+
+    with rawpy.imread(path) as raw:
+        mosaic = getattr(raw, "raw_image_visible", None)
+        if mosaic is None:
+            mosaic = raw.raw_image
+        mosaic = np.asarray(mosaic)
+
+        white_level = getattr(raw, "white_level", None)
+        black_level = None
+        black_level_per_channel = getattr(raw, "black_level_per_channel", None)
+        if black_level_per_channel is not None:
+            try:
+                black_level = float(np.mean(black_level_per_channel))
+            except Exception:
+                black_level = None
+        if black_level is None:
+            black_level = float(getattr(raw, "black_level", 0.0))
+
+        bit_depth = None
+        if white_level is not None:
+            try:
+                bit_depth = int(np.ceil(np.log2(float(white_level) + 1.0)))
+            except Exception:
+                bit_depth = None
+        if bit_depth is None:
+            if np.issubdtype(mosaic.dtype, np.integer):
+                bit_depth = int(np.iinfo(mosaic.dtype).bits)
+
+        cfa_pattern = derive_cfa_pattern(
+            getattr(raw, "raw_pattern", None),
+            getattr(raw, "color_desc", None),
+            fallback_cfa,
+        )
+
+    meta = {
+        "cfa_pattern": cfa_pattern,
+        "black_level": float(black_level) if black_level is not None else 0.0,
+        "white_level": float(white_level) if white_level is not None else None,
+        "bit_depth": bit_depth,
+    }
+    return mosaic, meta
+
+
+def normalize_raw_mosaic(raw: np.ndarray, black_level: float, white_level: float) -> np.ndarray:
+    eps = 1e-6
+    denom = max(float(white_level) - float(black_level), eps)
+    norm = (raw.astype(np.float32) - float(black_level)) / denom
+    return np.clip(norm, 0.0, 1.0).astype(np.float32)
