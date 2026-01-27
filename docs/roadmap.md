@@ -49,20 +49,25 @@ All v0.2 work must be **backward-compatible** with v0.1 runs:
   - Improve `denoise` quality without heavy deps (beyond the v0.1 Gaussian/box baseline); recommended: chroma-aware Gaussian or simple edge-aware strength.
   - Done when: on deterministic synthetic noise tests, the new method improves objective error (MSE/PSNR) vs the current Gaussian baseline and still preserves dtype/shape/contracts.
 
-- **M4 — Targeted baseline upgrades (prove improvement)**
-  - Goal: improve algorithms only after you can demonstrate benefit.
-  - Deliverables (pick one first):
-    - add an additional denoise method (e.g., **bilateral** as an optional reference method), **or**
-    - sharpen tuning / improved sharpening baseline
-  - Use compare bundle + metrics + diagnostics to show improvement.
-  - Keep defaults conservative and explain via debug fields.
+- **M4 — Sharpen tuning baseline (prove improvement)**
+  - Goal: improve sharpen and verify improvement with A/B compare + diagnostics/metrics.
+  - Deliverables:
+    - add a tuned `sharpen` variant (keep existing `unsharp_mask` intact; add minimal new params only if needed)
+    - use compare bundle + metrics + diagnostics to show improvement (e.g., edge contrast up, halo proxy down)
+    - keep defaults conservative and explain via debug fields
   - Acceptance:
     - improvement shown in an A/B compare bundle
-    - no regressions in tests
-    - still minimal deps
+    - no regressions in tests (`pytest -q` passes)
+    - still minimal deps; PNG bootstrap still works
 
+- **M5 — Optional real RAW/DNG input support (for validation)**
+  - Add optional RAW/DNG loading so the pipeline can run on a true Bayer mosaic (keep PNG bootstrap unchanged).
+  - Keep deps minimal; allow RAW support to be an optional install (not required for default PNG runs).
+  - Ensure CFA pattern and normalization metadata propagate (e.g., `meta.cfa_pattern`, manifest `input.cfa_pattern`).
+  - Done when: PNG runs behave exactly as before; a real RAW/DNG run completes end-to-end with the same run-folder layout/artifacts and tests cover basic RAW normalization + CFA propagation.
+  
 Notes:
-- v0.2 can be built and tested using the current PNG-bootstrap runs, but validating diagnostics is easier once real RAW inputs are added later.
+- v0.2 can be developed using PNG-bootstrap runs; M5 adds RAW/DNG input support to make diagnostics and A/B comparisons more representative on real sensor data.
 
 ## v0.3 — AI-DRC option (contained)
 - `tone.method: ai_drc` (curve/LUT/coeffs)

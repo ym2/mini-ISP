@@ -591,25 +591,63 @@ def stage_sharpen(frame: Frame, params: Dict[str, Any]) -> StageResult:
     if image.ndim != 3 or image.shape[2] != 3:
         return StageResult(frame=_copy_frame(frame), metrics={"warning": "sharpen expects RGB image"})
     method = str(params.get("method", "unsharp_mask")).lower()
-    if method != "unsharp_mask":
-        raise ValueError(f"Unknown sharpen method: {method}")
     sigma = float(params.get("sigma", 1.0))
     amount = float(params.get("amount", 0.5))
     threshold = float(params.get("threshold", 0.0))
+    luma_only = bool(params.get("luma_only", True))
+    gate_mode = str(params.get("gate_mode", "soft")).lower()
+    edge_mode = "edge"
 
     ksize = int(max(3, int(round(sigma * 6 + 1))))
     if ksize % 2 == 0:
         ksize += 1
     kernel = _kernel_gaussian(ksize, sigma)
-    blurred = np.stack(
-        [_convolve2d_edge(image[:, :, c], kernel) for c in range(3)], axis=2
-    ).astype(np.float32)
-    mask = image - blurred
-    if threshold > 0.0:
-        mask = np.where(np.abs(mask) >= threshold, mask, 0.0)
-    out = image + amount * mask
+
+    if method == "unsharp_mask":
+        blurred = np.stack(
+            [_convolve2d_edge(image[:, :, c], kernel) for c in range(3)], axis=2
+        ).astype(np.float32)
+        mask = image - blurred
+        if threshold > 0.0:
+            mask = np.where(np.abs(mask) >= threshold, mask, 0.0)
+        out = image + amount * mask
+    elif method == "unsharp_mask_tuned":
+        if gate_mode != "soft":
+            raise ValueError(f"Unknown gate_mode: {gate_mode}")
+        if luma_only:
+            y = 0.2126 * image[:, :, 0] + 0.7152 * image[:, :, 1] + 0.0722 * image[:, :, 2]
+            blurred_y = _convolve2d_edge(y, kernel).astype(np.float32)
+            mask = (y - blurred_y).astype(np.float32)
+            eps = 1e-6
+            denom = max(threshold, eps)
+            gain = np.clip((np.abs(mask) - threshold) / denom, 0.0, 1.0)
+            gated = mask * gain
+            out = image + amount * gated[:, :, None]
+        else:
+            blurred = np.stack(
+                [_convolve2d_edge(image[:, :, c], kernel) for c in range(3)], axis=2
+            ).astype(np.float32)
+            mask = image - blurred
+            eps = 1e-6
+            denom = max(threshold, eps)
+            gain = np.clip((np.abs(mask) - threshold) / denom, 0.0, 1.0)
+            gated = mask * gain
+            out = image + amount * gated
+    else:
+        raise ValueError(f"Unknown sharpen method: {method}")
 
     metrics = {
+        "method": method,
+        "params": {
+            "sigma": sigma,
+            "amount": amount,
+            "threshold": threshold,
+            "luma_only": luma_only,
+            "gate_mode": gate_mode,
+            "edge_mode": edge_mode,
+        },
+        "clip_applied": False,
+        "clip_range": None,
         "min": float(np.min(out)),
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
@@ -619,6 +657,9 @@ def stage_sharpen(frame: Frame, params: Dict[str, Any]) -> StageResult:
             "sigma": sigma,
             "amount": amount,
             "threshold": threshold,
+            "luma_only": luma_only,
+            "gate_mode": gate_mode,
+            "edge_mode": edge_mode,
         },
     }
     return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)

@@ -429,3 +429,56 @@ Rules:
 	•	if a stage has “derived/effective” parameters that aren’t part of config, put them under metrics.derived (not metrics.params).
 Tests: update/extend any tests that assert debug structure so pytest -q passes.
 Deliverables: give (1) the exact command to run tests, and (2) one command to run a pipeline and the file path to inspect to confirm metrics.params is gone.
+
+---
+
+## v0.2-M4 — Sharpen tuning baseline (prove improvement)
+
+### Final prompt
+v0.2-M4 — Sharpen tuning baseline (prove improvement)
+
+Implement a sharpen baseline upgrade that measurably improves edge clarity while reducing ringing/halo artifacts, using only NumPy and deterministic logic; keep all existing behavior intact; add a new method sharpen.method: unsharp_mask_tuned (v0.2 default remains unsharp_mask unless clearly justified by tests); do not edit docs; keep run-folder layout + manifest.json schema + viewer paths unchanged; no heavy deps; PNG bootstrap must still work; pytest -q must pass.
+
+Scope (sharpen only)
+	•	operates on RGB_LINEAR_F32 → RGB_LINEAR_F32; dtype float32
+	•	edge handling: edge-clamp (replicate), consistent with existing convolution helpers
+	•	no implicit clipping; if you add optional clipping, it must be explicitly controlled and recorded via clip_applied + clip_range in debug
+	•	keep parameters minimal and deterministic; recommended params for unsharp_mask_tuned:
+	•	sigma (float; default 1.0)
+	•	amount (float; default 0.4)
+	•	threshold (float; default 0.01)
+	•	luma_only (bool; default true)
+	•	gate_mode (string; default “soft”) where “soft” implements smooth thresholding of the mask (no hard cutoff)
+	•	implementation guidance for unsharp_mask_tuned:
+	•	compute a luma signal Y = 0.2126R + 0.7152G + 0.0722B
+	•	build mask from Y: maskY = Y − gaussian_blur(Y)
+	•	apply a soft threshold gate to maskY (deterministic, define exactly):
+	•	eps = 1e-6
+	•	denom = max(threshold, eps)
+	•	gain = clip((abs(maskY) − threshold) / denom, 0..1)
+	•	gated = maskY * gain
+	•	add back to RGB equally: out = rgb + amount * gated[…, None]
+	•	if luma_only=false, fall back to existing per-channel behavior but still use the same soft gating
+	•	required debug fields (debug.json):
+	•	metrics.method = “unsharp_mask_tuned”
+	•	metrics.params includes sigma, amount, threshold, luma_only, gate_mode, edge_mode
+	•	metrics.clip_applied, metrics.clip_range
+	•	keep existing numeric stats (min/max/p01/p99) and any existing diagnostics fields if present
+	•	use the existing metrics/diagnostics scaffolding when enabled (v0.2-M2) to show improvement; do not change schemas; only emit additive optional outputs under stage extra/ as already established.
+
+Tests (pytest)
+	•	synthetic step-edge test (deterministic):
+	•	construct a simple RGB_LINEAR_F32 image with a hard vertical edge (left=0.2, right=0.8), optionally add tiny deterministic noise (fixed seed)
+	•	run baseline sharpen.method=unsharp_mask (current default params) and new sharpen.method=unsharp_mask_tuned (defaults)
+	•	assert shape/dtype unchanged; values finite
+	•	define two deterministic metrics measured in a narrow band around the edge:
+	•	use band width = 5 pixels on either side of the edge (10px total window)
+	•	edge_strength: mean gradient magnitude around the edge (should be >= baseline * (1 - tol), set tol explicitly, e.g., 0.05)
+	•	overshoot: max(out_band) − max(in_band) and min(in_band) − min(out_band) (tuned should be <= baseline)
+	•	pass condition: tuned method reduces overshoot vs baseline while preserving edge_strength within tolerance (make thresholds explicit in the test).
+
+Deliverables
+	•	end with (1) one command to run pytest -q; and (2) two commands to run the pipeline for A/B compare runs using only CLI –set overrides:
+	•	baseline sharpen: –set stages.sharpen.method=unsharp_mask (and any baseline params you want fixed)
+	•	tuned sharpen: –set stages.sharpen.method=unsharp_mask_tuned (and tuned params)
+	•	use CLI –set overrides for A/B runs; do not require creating new YAML config files.
