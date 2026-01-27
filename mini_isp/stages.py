@@ -237,13 +237,13 @@ def stage_demosaic(frame: Frame, params: Dict[str, Any]) -> StageResult:
         clip_range = [0.0, 1.0]
 
     metrics = {
-        "method": method,
         "clip_applied": clip_applied,
         "clip_range": clip_range,
         "min": float(np.min(rgb)),
         "max": float(np.max(rgb)),
         "p01": float(np.percentile(rgb, 1.0)),
         "p99": float(np.percentile(rgb, 99.0)),
+        "resolved_params": {"method": method, "clip": bool(params.get("clip", False))},
     }
     return StageResult(frame=Frame(image=rgb, meta=dict(frame.meta)), metrics=metrics)
 
@@ -289,6 +289,7 @@ def stage_denoise(frame: Frame, params: Dict[str, Any]) -> StageResult:
     method = str(params.get("method", "gaussian")).lower()
     clip_applied = False
     clip_range = None
+    edge_mode = "edge"
     if method == "gaussian":
         ksize = int(params.get("ksize", 5))
         sigma = float(params.get("sigma", 1.0))
@@ -298,13 +299,31 @@ def stage_denoise(frame: Frame, params: Dict[str, Any]) -> StageResult:
         ksize = int(params.get("ksize", 3))
         kernel = _kernel_box(ksize)
         method_params = {"ksize": ksize}
+    elif method == "chroma_gaussian":
+        ksize = int(params.get("ksize", 5))
+        sigma_y = float(params.get("sigma_y", 1.0))
+        sigma_c = float(params.get("sigma_c", 2.0))
+        kernel_y = _kernel_gaussian(ksize, sigma_y)
+        kernel_c = _kernel_gaussian(ksize, sigma_c)
+        method_params = {"ksize": ksize, "sigma_y": sigma_y, "sigma_c": sigma_c}
+        y = 0.2126 * image[:, :, 0] + 0.7152 * image[:, :, 1] + 0.0722 * image[:, :, 2]
+        c1 = image[:, :, 0] - image[:, :, 1]
+        c2 = image[:, :, 2] - image[:, :, 1]
+        y_f = _convolve2d_edge(y, kernel_y)
+        c1_f = _convolve2d_edge(c1, kernel_c)
+        c2_f = _convolve2d_edge(c2, kernel_c)
+        g = y_f - 0.2126 * c1_f - 0.0722 * c2_f
+        r = g + c1_f
+        b = g + c2_f
+        out = np.stack([r, g, b], axis=2).astype(np.float32)
     else:
         raise ValueError(f"Unknown denoise method: {method}")
 
-    channels = []
-    for c in range(3):
-        channels.append(_convolve2d_edge(image[:, :, c], kernel))
-    out = np.stack(channels, axis=2).astype(np.float32)
+    if method in ("gaussian", "box"):
+        channels = []
+        for c in range(3):
+            channels.append(_convolve2d_edge(image[:, :, c], kernel))
+        out = np.stack(channels, axis=2).astype(np.float32)
 
     if params.get("clip", False):
         out = np.clip(out, 0.0, 1.0).astype(np.float32)
@@ -312,14 +331,14 @@ def stage_denoise(frame: Frame, params: Dict[str, Any]) -> StageResult:
         clip_range = [0.0, 1.0]
 
     metrics = {
-        "method": method,
-        "params": method_params,
+        "derived": {"edge_mode": edge_mode},
         "clip_applied": clip_applied,
         "clip_range": clip_range,
         "min": float(np.min(out)),
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
         "p99": float(np.percentile(out, 99.0)),
+        "resolved_params": {"method": method, **method_params, "edge_mode": edge_mode},
     }
     return StageResult(frame=Frame(image=out, meta=dict(frame.meta)), metrics=metrics)
 
@@ -361,14 +380,13 @@ def stage_ccm(frame: Frame, params: Dict[str, Any]) -> StageResult:
         clip_range = [lo, hi]
 
     metrics = {
-        "mode": mode,
-        "matrix": matrix.tolist(),
         "clip_applied": clip_applied,
         "clip_range": clip_range,
         "min": float(np.min(out)),
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
         "p99": float(np.percentile(out, 99.0)),
+        "resolved_params": {"mode": mode, "matrix": matrix.tolist(), "clip": clip},
     }
     if mode == "profile":
         metrics["warnings"] = ["profile mode not implemented; used identity"]
@@ -531,13 +549,13 @@ def stage_tone(frame: Frame, params: Dict[str, Any]) -> StageResult:
         clip_range = [lo, hi]
 
     metrics = {
-        "method": method,
         "clip_applied": clip_applied,
         "clip_range": clip_range,
         "min": float(np.min(out)),
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
         "p99": float(np.percentile(out, 99.0)),
+        "resolved_params": {"method": method, "clip": clip},
     }
     return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)
 
@@ -559,12 +577,11 @@ def stage_color_adjust(frame: Frame, params: Dict[str, Any]) -> StageResult:
         raise ValueError(f"Unknown color_adjust method: {method}")
 
     metrics = {
-        "method": method,
-        "sat_scale": sat_scale,
         "min": float(np.min(out)),
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
         "p99": float(np.percentile(out, 99.0)),
+        "resolved_params": {"method": method, "sat_scale": sat_scale},
     }
     return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)
 
@@ -593,14 +610,16 @@ def stage_sharpen(frame: Frame, params: Dict[str, Any]) -> StageResult:
     out = image + amount * mask
 
     metrics = {
-        "method": method,
-        "sigma": sigma,
-        "amount": amount,
-        "threshold": threshold,
         "min": float(np.min(out)),
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
         "p99": float(np.percentile(out, 99.0)),
+        "resolved_params": {
+            "method": method,
+            "sigma": sigma,
+            "amount": amount,
+            "threshold": threshold,
+        },
     }
     return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)
 
@@ -622,11 +641,11 @@ def stage_oetf_encode(frame: Frame, params: Dict[str, Any]) -> StageResult:
     encoded_u8 = np.clip(encoded * 255.0 + 0.5, 0, 255).astype(np.uint8)
 
     metrics = {
-        "oetf": oetf,
         "clip_applied": True,
         "clip_range": [0.0, 1.0],
         "dtype": "uint8",
         "bit_depth": 8,
+        "resolved_params": {"oetf": oetf},
     }
     return StageResult(frame=Frame(image=encoded_u8, meta=dict(frame.meta)), metrics=metrics)
 

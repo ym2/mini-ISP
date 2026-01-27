@@ -21,6 +21,7 @@ from .io_utils import (
 from .pipeline import build_pipeline
 from .stages import timed_call
 from .metrics import build_preview_for_metrics, emit_metrics_and_diagnostics
+from .config_overrides import apply_overrides
 
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -284,6 +285,13 @@ def main() -> None:
         default="extra",
         help="Metrics output location",
     )
+    parser.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        help="Override config via KEY=VALUE (repeatable)",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -295,6 +303,9 @@ def main() -> None:
         config["pipeline_mode"] = args.pipeline_mode
     if args.name:
         config["output"]["name"] = args.name
+
+    if args.overrides:
+        config = apply_overrides(config, args.overrides)
 
     if args.metrics_target in ("linear", "both"):
         raise SystemExit("linear metrics not implemented yet; use --metrics-target preview")

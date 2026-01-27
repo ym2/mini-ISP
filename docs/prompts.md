@@ -356,3 +356,76 @@ Deliverables:
 	•	command to run tests
 	•	command to run pipeline with overrides, e.g.:
 	•	python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name v02_m2_metrics --enable-metrics --enable-diagnostics
+
+---
+
+## v0.2-M3 — Denoise upgrade (beyond current Gaussian/box baseline)
+
+### Final prompt
+v0.2-M3 — Denoise upgrade (beyond current Gaussian/box baseline)
+
+Implement a denoise improvement that measurably outperforms the current Gaussian/box blur baseline, without heavy deps. Add a new denoise method (keep existing methods intact); recommended: denoise.method: chroma_gaussian that applies stronger smoothing on chroma than luma using a simple, deterministic transform (e.g., Y + two chroma-like channels derived from RGB). Keep outputs deterministic and fast (NumPy only).
+
+Requirements:
+	•	I/O contracts unchanged: RGB_LINEAR_F32 → RGB_LINEAR_F32; dtype stays float32; no implicit clipping (if you choose to clip, it must be explicitly controlled and recorded).
+	•	Config: keep existing denoise.method options; add chroma_gaussian with deterministic defaults (e.g., sigma_y=1.0, sigma_c=2.0, ksize=5, edge handling = clamp).
+	•	Debug fields (in debug.json): method, params (sigmas/ksize/edge_mode), clip_applied, clip_range, and existing range stats (min/max/p01/p99).
+	•	Keep run-folder layout, per-stage artifacts, and manifest.json schema unchanged; do not edit docs; no new heavy dependencies.
+
+Tests (pytest):
+	•	Deterministic synthetic test with fixed seed: create a clean RGB image; add seeded Gaussian noise; compare denoised outputs.
+	•	Assert the new method yields lower MSE (and/or higher PSNR) vs the current gaussian baseline on the noisy input.
+	•	Assert shape/dtype unchanged; values finite.
+
+Deliverables:
+	•	End with (1) one command to install dev/test deps, (2) one command to run pytest -q, and (3) one command to run the pipeline twice for A/B (baseline gaussian vs chroma_gaussian) so it can be compared later with v0.2-M1 compare mode.
+
+### Patch prompt 1 — CLI --set overrides for config (no docs changes)
+Task: add a lightweight CLI override mechanism to python -m mini_isp.run so I can override config values without writing a YAML file.
+python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name v02_m3_chroma \\
+  --set stages.denoise.method=chroma_gaussian \\
+  --set stages.denoise.sigma_y=1.0 \\
+  --set stages.denoise.sigma_c=2.0 \\
+  --set stages.denoise.ksize=5
+
+Requirements:
+	•	Add repeatable flag: --set KEY=VALUE (may be passed multiple times).
+	•	KEY is a dotted path into the resolved config dict (e.g., stages.denoise.method, stages.denoise.sigma_y, metrics.enable).
+	•	VALUE must be type-coerced deterministically:
+	•	true/false → bool
+	•	integers (e.g., 5) → int
+	•	floats (e.g., 1.25) → float
+	•	null/none → None
+	•	otherwise string (preserve as-is)
+	•	Overrides are applied after loading config file defaults, so CLI always wins.
+	•	Do not change existing behavior when --set is not provided.
+	•	Do not change run-folder layout, manifest.json schema, or viewer paths.
+	•	Do not edit docs; no new heavy dependencies.
+
+Implementation notes:
+	•	Put the parsing + apply logic in a small helper (e.g., mini_isp/config_overrides.py or inside run.py if you prefer), but keep it testable.
+	•	For missing intermediate dict keys, create them (e.g., setting stages.denoise.method should work even if stages exists but denoise doesn’t).
+	•	If a dotted path traverses a non-dict, exit with a clear error.
+
+Tests (pytest):
+	•	Add a unit test that starts from a small base dict and applies multiple --set entries; assert nested keys created and types are correct.
+	•	Add an integration-ish test that runs python -m mini_isp.run on data/sample.png with:
+	•	--set stages.denoise.method=chroma_gaussian
+	•	--set stages.denoise.sigma_y=1.0
+	•	--set stages.denoise.sigma_c=2.0
+	•	--set stages.denoise.ksize=5
+and then asserts the resulting run’s stages/**/debug.json for denoise reports "method": "chroma_gaussian" (or wherever method is recorded in debug).
+
+Deliverables:
+	•	Provide one command to run tests: pytest -q
+	•	Provide one command to run the pipeline with overrides (no YAML file)
+
+### Patch prompt 2 — debug.json param de-dup (no schema/layout changes)
+Task: remove duplicated parameter reporting in debug.json by eliminating debug.metrics.params (and any similar metrics.params occurrences) and keeping all stage configuration under top-level debug.params.
+Rules:
+	•	do not change run-folder layout, manifest schema, or viewer assets/paths; do not edit docs; minimal changes only.
+	•	preserve existing debug.json top-level keys: stage, params, metrics, warnings, notes.
+	•	keep metrics strictly numeric/result metrics (min/max/p01/p99, clip flags, n_fixed, gain stats, etc.); no config duplication.
+	•	if a stage has “derived/effective” parameters that aren’t part of config, put them under metrics.derived (not metrics.params).
+Tests: update/extend any tests that assert debug structure so pytest -q passes.
+Deliverables: give (1) the exact command to run tests, and (2) one command to run a pipeline and the file path to inspect to confirm metrics.params is gone.

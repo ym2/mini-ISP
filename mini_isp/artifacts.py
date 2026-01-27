@@ -28,9 +28,16 @@ def write_stage_artifacts(
         roi = roi_crop(preview, tuple(dump_config["roi"]["xywh"]))
         save_png(f"{stage_root}/roi.png", roi)
 
+    resolved = metrics.pop("resolved_params", None)
+    debug_params = stage_params
+    if isinstance(resolved, dict):
+        debug_params = dict(resolved)
+        for key, value in stage_params.items():
+            if key not in debug_params:
+                debug_params[key] = value
     debug = {
         "stage": stage_name,
-        "params": stage_params,
+        "params": debug_params,
         "metrics": metrics,
         "warnings": [],
         "notes": [],

@@ -46,21 +46,20 @@ All v0.2 work must be **backward-compatible** with v0.1 runs:
   - Done when: metrics/diagnostics are emitted only when enabled and tests assert files/keys exist (no schema break).
 
 - **M3 — Denoise upgrade (demonstrable improvement)**
-  - Improve `denoise` quality without heavy deps (e.g., separable Gaussian + optional chroma-aware pass).
-  - Done when: on deterministic synthetic noise tests, denoise improves objective error (MSE/PSNR) and still preserves dtype/shape/contracts.
-  
+  - Improve `denoise` quality without heavy deps (beyond the v0.1 Gaussian/box baseline); recommended: chroma-aware Gaussian or simple edge-aware strength.
+  - Done when: on deterministic synthetic noise tests, the new method improves objective error (MSE/PSNR) vs the current Gaussian baseline and still preserves dtype/shape/contracts.
+
 - **M4 — Targeted baseline upgrades (prove improvement)**
   - Goal: improve algorithms only after you can demonstrate benefit.
-
-  Deliverables:
-  - Denoise upgrade OR sharpen tuning (pick one first)
-  - Use compare bundle + metrics + diagnostics to show improvement
-  - Keep defaults conservative and explain via debug fields
-
-  Acceptance:
-  - Improvement shown in an A/B compare bundle
-  - No regressions in tests
-  - Still minimal deps
+  - Deliverables (pick one first):
+    - add an additional denoise method (e.g., **bilateral** as an optional reference method), **or**
+    - sharpen tuning / improved sharpening baseline
+  - Use compare bundle + metrics + diagnostics to show improvement.
+  - Keep defaults conservative and explain via debug fields.
+  - Acceptance:
+    - improvement shown in an A/B compare bundle
+    - no regressions in tests
+    - still minimal deps
 
 Notes:
 - v0.2 can be built and tested using the current PNG-bootstrap runs, but validating diagnostics is easier once real RAW inputs are added later.
