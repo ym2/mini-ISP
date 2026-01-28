@@ -1,32 +1,107 @@
 # mini-ISP
 
-**A staged RAW→display output reference ISP pipeline with per-stage dumps, metrics, and an interactive viewer for image-quality (IQ) debugging and learning.**
+**A staged RAW→display reference ISP pipeline built for inspectability, reproducible experiments, and A/B comparisons.**
 
-mini-ISP is a compact, modular ISP pipeline you can run on RAW images, inspect stage-by-stage outputs, and compare algorithm choices with reproducible experiments. It’s a structured, hands-on way to explore and strengthen ISP and camera IQ skills (some familiarity with imaging pipelines helps).
+mini-ISP is a compact, modular ISP pipeline you can run on RAW or PNG bootstrap inputs, inspect stage-by-stage artifacts, and compare algorithm choices with a manifest-driven static viewer. It’s designed as an evolving sandbox for learning and validating camera IQ/ISP ideas—from single-frame baselines to future multi-frame and learned modules—while keeping outputs deterministic and easy to review.
 
-## What you get in v0.1
-- **End-to-end RAW→display output pipeline** with clear, swappable stages and strict I/O contracts
-- **Core ISP stages implemented**: RAW normalization → DPC → LSC → WB → demosaic → denoise → CCM → 3A stats → tone → color adjust → sharpen → OETF encode
-- **Pipeline modes**: `classic` (separate stages), `jdd` (joint demosaic+denoise), `drc_plus` (tone/DRC + color adjustment/preservation)
-- **Inspectability built-in**: per-stage previews + ROI crops + debug JSON + timings/metrics for every run
-- **Static HTML stage viewer** powered by a stable `manifest.json` and predictable asset layout
-- **Optional skin-mask hook** (off by default): heuristic now, upgrade path to seg-model later
+## Key features (current)
+- **Deterministic runs**: stable `runs/<run_id>/` layout with a canonical `manifest.json`.
+- **Per-stage inspectability**: each stage emits `preview.png`, `debug.json`, `timing_ms.json`, and optional `roi.png`.
+- **Static viewer**: step through stages; view preview/ROI/debug/timing; supports **single-run** and **A/B compare** modes.
+- **Optional diagnostics/metrics**: additive outputs under `stages/<nn>_<name>/extra/` (no schema breaks).
+- **Config + CLI overrides**: YAML config plus `--set KEY=VALUE` overrides and flags to enable metrics/diagnostics.
+- **Minimal dependencies**: NumPy + Pillow/PyYAML; optional RAW support via `rawpy`.
 
-## Pipeline modes
+## Pipeline overview
+Single-frame staged pipeline (v0.1 complete), with curated composites:
 - `classic`: separate stages (best for learning/debugging)
-- `jdd`: joint demosaic+denoise stage (curated composite)
-- `drc_plus`: tone/DRC + color adjustment/preservation (curated composite)
+- `jdd`: composite raw→rgb wrapper (demosaic + denoise)
+- `drc_plus`: composite tone + color wrapper
 
-See: [`docs/pipeline.md`](docs/pipeline.md)
+See: [`docs/pipeline.md`](docs/pipeline.md) and [`docs/stage_contracts.md`](docs/stage_contracts.md).
 
-## Quickstart
-> This will be updated as the codebase lands. For now, the goal is: one command → a run folder with stage artifacts + viewer.
-
+## Install
 ```bash
-# from repo root
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-# pip install -r requirements.txt   # (once added)
-# python -m mini_isp.run --config configs/default.yaml --pipeline_mode classic --input data/sample.dng --out runs
+Optional RAW support (requires rawpy):
+```bash
+pip install -r requirements-raw.txt
+```
+
+Dev/test deps:
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+## Single-run workflow
+Serve the viewer over HTTP (some browsers block `fetch()` on `file://`):
+```bash
+python -m http.server 8000
+```
+
+### PNG bootstrap (quick start / no RAW dependency)
+If `data/sample.png` is missing, the runner will generate a deterministic sample image.
+
+```bash
+python -m mini_isp.run   --input data/sample.png   --out runs   --pipeline_mode classic   --name png_demo
+```
+
+Open:
+```
+http://localhost:8000/runs/png_demo/viewer/index.html?manifest=/runs/png_demo/manifest.json
+```
+
+### Run on a real RAW (recommended; requires rawpy)
+```bash
+python -m mini_isp.run   --input path/to/sample.dng   --out runs   --pipeline_mode classic   --name raw_demo
+```
+Supported RAW extensions depend on rawpy/LibRaw (e.g., dng/nef/cr2/arw/rw2/orf/raf).
+
+Open:
+```
+http://localhost:8000/runs/raw_demo/viewer/index.html?manifest=/runs/raw_demo/manifest.json
+```
+
+## A/B compare workflow
+1) Create two runs (example: different denoise methods):
+```bash
+python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name A   --set stages.denoise.method=gaussian
+
+python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name B   --set stages.denoise.method=chroma_gaussian
+```
+
+2) Generate a compare bundle JSON:
+```bash
+python -m mini_isp.compare   --a runs/A   --b runs/B   --out runs/compare/compare.json   --label-a "Baseline"   --label-b "New"   --notes "denoise A/B"
+```
+
+3) Start a server from the **repo root** and open compare mode:
+```bash
+python -m http.server 8000
+# open: http://localhost:8000/runs/A/viewer/index.html?compare=/runs/compare/compare.json
+```
+
+## Metrics / diagnostics
+Enable metrics and diagnostics outputs (files are written under `stages/.../extra/`):
+```bash
+python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name metrics_demo   --enable-metrics --enable-diagnostics
+```
+
+## Repo conventions
+- **No breaking changes** to `manifest.json` schema or viewer asset paths (compatibility matters).
+- New optional outputs go under `stages/<nn>_<name>/extra/` or additional optional JSON files.
+
+## Roadmap
+- **v0.3**: AI-DRC option (`tone.method: ai_drc`) with “predict curve/LUT + fast apply”; optional ONNX hook.
+- **v0.4+**: multi-frame wrappers (MFNR/HDR orchestration around the single-frame stages).
+
+See: [`roadmap.md`](docs/roadmap.md).
+
+## License
+See [`LICENSE`](LICENSE).

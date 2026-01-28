@@ -2,10 +2,10 @@
 
 This document describes how to test mini-ISP in a way that keeps results **reproducible** and changes **safe** as the codebase grows.
 
-## v0.1 focus
+## Current focus
 - **Correctness:** shapes, dtypes, value ranges, required metadata keys
 - **Integration:** pipeline produces a valid run folder + `manifest.json`
-- **Light regression:** metrics drift stays within tolerance (where applicable)
+- **Light regression:** basic checks for deterministic outputs (where applicable)
 
 ---
 
@@ -37,25 +37,27 @@ pytest -q -x                   # stop on first failure
 
 ---
 
-## Test categories (planned / recommended)
+## Test categories (current + planned)
 
 ### 1) Stage contract tests
 **Goal:** ensure each stage obeys I/O contracts.
 
-Examples:
-- `tests/test_stage_contracts.py`
-  - verifies input/output format names (e.g., `RAW_BAYER_F32 → RGB_LINEAR_F32`)
-  - asserts output shape/channel order
-  - asserts numeric sanity (no NaNs/inf; expected range)
+Examples (current):
+- `tests/test_wb_demosaic.py`, `tests/test_dpc_lsc.py`, `tests/test_denoise_jdd.py`, `tests/test_ccm_stats.py`
+  - verify shape/dtype, ranges, and required keys per stage
+
+Planned:
+- `tests/test_stage_contracts.py` (formalized contract checks)
 
 ### 2) Manifest + artifacts tests
 **Goal:** ensure the viewer contract stays stable.
 
-Examples:
-- `tests/test_manifest.py`
-  - validates required fields exist in `manifest.json`
-  - checks referenced artifact paths exist
-  - ensures stage ordering/prefixing is consistent
+Examples (current):
+- `tests/test_smoke.py`
+  - validates run folder, `manifest.json`, and stage artifacts exist
+
+Planned:
+- `tests/test_manifest.py` (manifest schema-focused checks)
 
 ### 3) End-to-end smoke tests
 **Goal:** prevent “it doesn’t run” regressions.

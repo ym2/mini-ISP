@@ -1,6 +1,6 @@
 # Config
 
-mini-ISP is configured with YAML files. The config is intentionally simple in v0.1:
+mini-ISP is configured with YAML (or JSON) files. The config is intentionally simple in the current release:
 - select a `pipeline_mode`
 - choose per-stage methods/parameters
 - define dumping/metrics/viewer behavior
@@ -9,7 +9,7 @@ This doc specifies the **schema**, **defaults**, and **where values come from**.
 
 ---
 
-## 1) Top-level schema (v0.1)
+## 1) Top-level schema
 
 ```yaml
 # configs/default.yaml (example shape)
@@ -17,7 +17,7 @@ This doc specifies the **schema**, **defaults**, and **where values come from**.
 pipeline_mode: classic            # classic | jdd | drc_plus
 
 input:
-  path: data/sample.dng
+  path: data/sample.png
   bayer_pattern: RGGB            # optional; overrides RAW metadata/autodetect for CFA pattern
   bit_depth: 12                  # optional
   black_level: 64                # optional
@@ -27,8 +27,8 @@ output:
   dir: runs
   name: run_001                  # optional; else timestamp
   save_final: true
-  format: png                    # png | jpg (v0.1)
-  bit_depth: 8                   # 8 (v0.1 default; extend later)
+  format: png                    # png (current)
+  bit_depth: 8                   # 8 (current default; extend later)
 
 dump:
   enable: true
@@ -42,9 +42,11 @@ dump:
 
 metrics:
   enable: true
+  diagnostics: false
+  out: extra                      # stage_root | extra
   timing: true
-  histograms: true
-  deltas: false                   # enable stage-to-stage comparisons later
+  histograms: false
+  deltas: false                   # stage-to-stage comparisons (optional)
 
 skin_mask:
   enable: false

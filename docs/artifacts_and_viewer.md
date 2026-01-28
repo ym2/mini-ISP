@@ -9,7 +9,7 @@ This document defines the **run folder layout**, **manifest schema**, and the **
 
 ---
 
-## 1) Run folder layout (v0.1)
+## 1) Run folder layout
 
 A run produces a directory like:
 
@@ -47,13 +47,13 @@ Notes:
 
 When dumping is enabled, each stage should emit:
 
-Required (v0.1):
+Required:
 - `preview.png` — downscaled full-frame view (display-ready for the viewer)
 - `debug.json` — parameters + key metrics + warnings
 - `timing_ms.json` — elapsed time (ms) for the stage
 Note: If ROI dumping is enabled, stages should write `roi.png` when meaningful.
 
-Optional (v0.1):
+Optional:
 - `roi.png` — ROI crop preview when ROI dump enabled
 - `hist.json` — histogram data (if enabled)
 - `mask.png` — for mask-like stages (e.g., skin mask when enabled)
@@ -61,7 +61,7 @@ Optional (v0.1):
 
 ---
 
-## 3) `manifest.json` schema (v0.1)
+## 3) `manifest.json` schema
 
 The viewer is driven by `manifest.json`. Keep it **stable** as the project evolves.
 
@@ -119,6 +119,7 @@ Each stage entry must include:
 - `title` (string)
 - `input.width`, `input.height` (int)
 - `input.cfa_pattern` (string)
+- `input.bit_depth`, `input.black_level`, `input.white_level` (numbers; RAW only)
 - `stages[].display_name` (string)
 - `stages[].artifacts.roi` (string)
 - `stages[].timing_ms` (number) optional convenience copy of the value in `timing_ms.json` for faster viewer display
@@ -147,10 +148,11 @@ Example:
 
 ---
 
-## 5) Static viewer contract (v0.1)
+## 5) Static viewer contract
 
-The v0.1 viewer is a static page that:
-- loads `manifest.json`
+The viewer is a static page that:
+- loads `manifest.json` (single-run mode)
+- can load a compare bundle (A/B compare mode) and show side-by-side previews
 - shows the stage list in order
 - displays `preview.png` (and ROI when available)
 - shows the `debug.json` content and timing
@@ -160,7 +162,7 @@ Note: open the viewer via HTTP (e.g., `python -m http.server`) since `file://` m
 - It must not assume every stage has ROI/mask/hist artifacts.
 - It must not assume stage names beyond what appears in `manifest.json`.
 
-### 5.2 Minimal interactions (v0.1)
+### 5.2 Minimal interactions
 - select stage from list (or left/right arrow)
 - toggle full-frame vs ROI (if ROI exists)
 - show/hide debug JSON panel
@@ -171,7 +173,6 @@ Note: open the viewer via HTTP (e.g., `python -m http.server`) since `file://` m
 
 The static viewer is designed to upgrade without breaking old runs:
 - add histogram charts (read `hist.json`)
-- add side-by-side comparisons (two manifests)
 - add overlays (mask heatmap on preview)
 - move to a React UI later while keeping `manifest.json` stable
 

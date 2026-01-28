@@ -13,15 +13,14 @@ A `Frame` is the unit passed between stages:
 
 - `image`: ndarray (either RAW mosaic or RGB)
 - `meta`: dict (camera + processing metadata)
-- `artifacts`: optional dict (paths/values to write in the run folder)
 
 A stage must:
 - **not mutate** its input `Frame` in-place (copy or create new output)
 - declare its **input format** and **output format**
 - write deterministic artifacts when `dump.enable: true`
 
-### 1.2 Image formats (v0.1)
-We keep v0.1 intentionally small. Use these canonical format names in code and manifests:
+### 1.2 Image formats
+We keep the format set intentionally small. Use these canonical format names in code and manifests:
 
 - `RAW_BAYER_F32`  
   H×W float32 mosaic, normalized nominally to [0, 1] after `raw_norm`
@@ -30,9 +29,9 @@ We keep v0.1 intentionally small. Use these canonical format names in code and m
   H×W×3 float32, linear light, nominally [0, 1] (values may exceed slightly before clipping)
 
 - `RGB_DISPLAY_U8`  
-  H×W×3 uint8, encoded for display (default sRGB OETF in v0.1)
+  H×W×3 uint8, encoded for display (default sRGB OETF)
 
-> Note: “display output” is the concept; the default encoding is sRGB in v0.1, but `oetf_encode` is designed to extend to other encodes/bit-depths later.
+> Note: “display output” is the concept; the default encoding is sRGB, but `oetf_encode` is designed to extend to other encodes/bit-depths later.
 
 ### 1.3 Coordinate conventions
 - Image arrays are **row-major**: `image[y, x]`
@@ -54,7 +53,7 @@ Stages may add keys, but must not delete required keys.
 - `meta.camera_id`: optional string (if known)
 
 ### 2.2 Required after WB
-- `meta.wb_gains`: `[r, g, b]` (v0.1; applied to both green sites)
+- `meta.wb_gains`: `[r, g, b]` (applied to both green sites)
 - `meta.wb_applied`: bool
 
 ### 2.3 Color transform metadata
@@ -80,7 +79,7 @@ Optional (stage-dependent):
 
 ---
 
-## 4. Stage-by-stage contracts (v0.1)
+## 4. Stage-by-stage contracts
 
 ### 4.1 `raw_norm`
 **Input:** vendor RAW (reader-specific)  
@@ -157,7 +156,7 @@ Artifacts:
 **Output:** `RGB_LINEAR_F32`
 
 Responsibilities:
-- baseline RGB denoise (e.g., NLMeans)
+- baseline RGB denoise (e.g., gaussian/box/chroma_gaussian)
 - preserve edges reasonably; avoid hue shifts
 
 Artifacts:
@@ -192,7 +191,6 @@ Responsibilities:
 - write stats into `meta.stats_3a`
 
 Artifacts:
-- histograms/plots as JSON
 - debug: selected ROI, metric values
 
 ---
@@ -203,7 +201,7 @@ Artifacts:
 
 Responsibilities:
 - tone mapping / DRC in a defined domain
-- v0.1 methods: `reinhard`, `filmic`
+- current methods: `reinhard`, `filmic`
 - future: `ai_drc` method (AI-DRC; model predicts curve/LUT/coeffs)
 
 Artifacts:
@@ -290,7 +288,7 @@ The skin mask is a **side signal**: it should not change the `Frame.image` forma
 - `heuristic`: fast heuristic mask (e.g., YCbCr/HSV thresholds + morphology)
 - `seg_model`: semantic segmentation model (future)
 
-Stages may opt-in to using the mask (recommended v0.1: `color_adjust` only), and must:
+Stages may opt-in to using the mask (recommended: `color_adjust` only), and must:
 - behave sensibly when no mask is present
 - keep changes gentle and easy to disable
 
