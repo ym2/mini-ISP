@@ -93,6 +93,12 @@ Enable metrics and diagnostics outputs (files are written under `stages/.../extr
 python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name metrics_demo   --enable-metrics --enable-diagnostics
 ```
 
+## RAW crop utility (testing support)
+Generate small, deterministic Bayer crops for fast iteration and reproducible A/B tests:
+```bash
+python -m mini_isp.tools.raw_crop --input path/to/sample.dng --out crops/raw_demo --x 100 --y 200 --w 512 --h 512 --dtype float32
+```
+
 ## Repo conventions
 - **No breaking changes** to `manifest.json` schema or viewer asset paths (compatibility matters).
 - New optional outputs go under `stages/<nn>_<name>/extra/` or additional optional JSON files.

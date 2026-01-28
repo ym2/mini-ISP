@@ -65,6 +65,13 @@ All v0.2 work must be **backward-compatible** with v0.1 runs:
   - Keep deps minimal; allow RAW support to be an optional install (not required for default PNG runs).
   - Ensure CFA pattern and normalization metadata propagate (e.g., `meta.cfa_pattern`, manifest `input.cfa_pattern`).
   - Done when: PNG runs behave exactly as before; a real RAW/DNG run completes end-to-end with the same run-folder layout/artifacts and tests cover basic RAW normalization + CFA propagation.
+
+- **M6 — RAW crop utility (testing support)**
+  - Add a small, optional utility to generate deterministic Bayer RAW crops for faster ISP iteration and validation.
+  - Support cropping from real RAW/DNG inputs using the same RAW loader as the pipeline (e.g., rawpy), without modifying the ISP run flow.
+  - Output cropped Bayer mosaics (and minimal metadata sidecar if needed) suitable for direct use as pipeline inputs.
+  - Scope is developer/testing support only (not a pipeline stage; no changes to run-folder layout, manifest.json, or viewer behavior).
+  - Done when: developers can reliably generate small RAW crops (e.g., 256–1024 px) to speed up iteration, isolate artifacts, and perform reproducible A/B comparisons.
   
 Notes:
 - v0.2 can be developed using PNG-bootstrap runs; M5 adds RAW/DNG input support to make diagnostics and A/B comparisons more representative on real sensor data.

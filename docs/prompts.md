@@ -577,3 +577,78 @@ Tests:
 Deliverables:
 	•	One command to run tests (pytest -q).
 	•	One command to run: python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classic --name raw_demo (or with whatever RAW file you have).
+
+---
+
+## v0.2-M6 — RAW crop utility (testing support)
+
+### Final prompt
+v0.2-M6 — RAW crop utility (testing support)
+
+Add a small, optional CLI utility to generate deterministic Bayer RAW crops for fast ISP iteration and reproducible A/B comparisons; this is a developer/testing tool only (not a pipeline stage); implement it under mini_isp/tools/ and expose it as a module entrypoint.
+
+Task
+	•	create a new package folder mini_isp/tools/ (with init.py) if it doesn’t exist; add raw_crop.py inside it
+	•	add a CLI entrypoint so users can run: python -m mini_isp.tools.raw_crop …
+
+Requirements
+	•	input: real RAW/DNG using the same RAW loader path as the pipeline (rawpy; lazy import); reuse existing loader utilities where possible (do not duplicate metadata logic if it already exists)
+	•	output: a cropped Bayer mosaic (2D H×W) plus a minimal metadata sidecar; this tool must not run demosaic/WB/tone or any pipeline stages
+	•	determinism: crop is purely index-based with explicit –x –y –w –h (no auto ROI selection); output must be deterministic for a given input + coordinates
+	•	scope: this is not a pipeline stage; do not change run-folder layout, manifest.json, or viewer assets/paths; do not edit docs
+	•	dependencies: rawpy is an optional dependency used only when RAW/DNG input is provided (lazy import); do not add rawpy to default requirements.txt (keep optional raw deps separate if the repo already follows that convention)
+	•	safety/validation:
+	•	validate that crop bounds are within the mosaic shape; error clearly if out-of-bounds
+	•	create OUT_DIR if missing; default overwrite=false unless –overwrite is passed
+	•	preserve CFA correctness: if cropping starts at odd x/y, the effective CFA alignment changes; handle this explicitly by adjusting the reported cfa_pattern in meta.json so that downstream stages interpret the crop correctly
+
+CLI
+Command: python -m mini_isp.tools.raw_crop
+Flags (required unless noted):
+	•	–input PATH
+	•	–out OUT_DIR
+	•	–x X0
+	•	–y Y0
+	•	–w W
+	•	–h H
+	•	–dtype float32|uint16 (default: float32)
+	•	–overwrite (optional; default false)
+
+Outputs (exact filenames in OUT_DIR)
+	•	crop.npy  (mosaic; 2D; dtype per –dtype)
+	•	meta.json (sidecar metadata)
+
+Metadata sidecar schema (meta.json; must include these keys)
+	•	source_path, x, y, w, h
+	•	mosaic_shape (full mosaic H×W), crop_shape (h×w)
+	•	cfa_pattern (after any parity adjustment from x/y)
+	•	black_level, white_level, bit_depth
+
+Notes on dtype
+	•	dtype=float32: store normalized RAW in [0,1] using the same normalization formula as the pipeline raw loader (with safe divide + clip); record in meta.json that the crop is normalized float32
+	•	dtype=uint16: store the original mosaic values as uint16 without normalization; record in meta.json that the crop is unnormalized uint16 and include black/white/bit_depth for later normalization
+
+Tests (pytest)
+	•	unit test (no rawpy): cropping on a synthetic mosaic array to verify:
+	•	output shape matches –w/–h
+	•	determinism (same input + coords → same output)
+	•	out-of-bounds raises a clear error
+	•	CFA parity adjustment works: changing x/y parity updates cfa_pattern as expected
+	•	integration test (rawpy optional):
+	•	if rawpy not installed: skip
+	•	if installed: mock rawpy.imread (or the project’s raw loader entrypoint) to return a deterministic mosaic + metadata; verify:
+	•	crop.npy content and dtype
+	•	meta.json keys and values (including cfa_pattern, black/white/bit_depth)
+	•	pytest -q must pass
+
+Constraints
+	•	do not change run-folder layout, manifest.json schema, or viewer assets/paths
+	•	do not add new heavy dependencies
+	•	do not edit docs
+	•	keep behavior deterministic
+
+Deliverables
+	•	end with:
+(1) one command to install optional RAW deps (if needed; e.g., pip install -r requirements-raw.txt or pip install rawpy)
+(2) one command to run pytest -q
+(3) one example CLI command that generates a crop from a RAW/DNG file
