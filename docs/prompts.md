@@ -685,3 +685,60 @@ Deliverables
 	•	One command to run tests: pytest -q
 	•	One example command:
 python -m mini_isp.run --input crops/raw_demo/crop.npy --out runs --pipeline_mode classic --name crop_demo
+
+---
+
+## v0.2-M7 — Scene-pack runner + consolidated JSON report
+
+### Final prompt
+v0.2-M7 — Scene-pack runner + consolidated JSON report
+
+Add a small CLI tool to run a folder of inputs under two configurations (baseline vs candidate) and write a single JSON report summarizing metrics per scene. Developer/testing only; no changes to pipeline stages, run layout, manifest.json, or viewer.
+
+CLI
+	•	Implement python -m mini_isp.tools.scene_pack with:
+	•	--inputs DIR (required): folder of inputs (.png, RAW/DNG, crop.npy).
+	•	--out DIR (required): base output dir (e.g. runs/scene_pack_demo).
+	•	--name NAME (optional): report name stem, default scene_pack.
+	•	Baseline config (required): either --baseline-config PATH or one/more --baseline-set KEY=VALUE (same semantics as existing --set).
+	•	Candidate config (required): either --candidate-config PATH or one/more --candidate-set KEY=VALUE.
+	•	--metrics (default true): ensure metrics/diagnostics are enabled for both runs.
+	•	--ext (optional): comma-separated extension filter (default supports .png,.dng,.nef,.cr2,.arw,.npy).
+	•	--skip-errors (optional): skip inputs that fail validation (e.g., .npy missing meta.json).
+
+For each matching file:
+	•	Run baseline and candidate via the existing pipeline runner, with deterministic run names like <name>/<file_stem>__baseline and __candidate.
+	•	Use existing loaders (PNG, RAW/DNG via rawpy, crop.npy + meta.json). For .npy inputs, meta.json must exist in the same directory.
+
+Report format
+	•	Write ${out}/scene_pack_${name}.json with:
+	•	top-level: scene_pack, created_utc, inputs (list).
+	•	each inputs[i] contains:
+	•	input_path
+	•	baseline and candidate blocks with: label, run_dir, pipeline_mode, runtime_ms, metrics (small numeric dict).
+	•	diff: for each metric present in both, <metric>_delta = candidate - baseline.
+	•	Implement a small helper (e.g. extract_report_metrics(...)) that chooses which numeric fields from existing metrics JSONs to include (start with a few like PSNR/L1 diff; easy to extend later).
+	•	Keep output deterministic (inputs sorted by filename; report stable for same inputs/configs).
+
+Constraints
+	•	Do not change run-folder layout, manifest.json schema, or viewer behavior.
+	•	Reuse existing metrics/diagnostics artifacts; no new heavy deps (NumPy + stdlib only).
+	•	pytest -q must pass.
+
+Tests (pytest)
+	•	Use a temp dir with 2–3 tiny PNGs; run scene_pack with baseline/candidate via --*-set.
+	•	Assert the JSON report exists and has the expected structure:
+	•	scene_pack, created_utc, inputs list
+	•	for each entry: input_path, baseline.run_dir, candidate.run_dir, runtime_ms, metrics dicts, and diff dict.
+	•	run folders actually exist.
+	•	Determinism: run scene_pack twice with the same args and assert the parsed JSONs are identical (you may ignore created_utc if you want).
+
+Deliverables
+	•	one command to run tests (pytest -q)
+	•	one example command, e.g.:
+python -m mini_isp.tools.scene_pack \
+  --inputs data/scenes \
+  --out runs/scene_pack_demo \
+  --name denoise_tweak_01 \
+  --baseline-set stages.denoise.method=gaussian \
+  --candidate-set stages.denoise.method=chroma_gaussian

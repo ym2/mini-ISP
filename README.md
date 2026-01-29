@@ -110,6 +110,22 @@ python -m mini_isp.tools.raw_crop --input path/to/sample.dng --out crops/raw_dem
 ```
 Use the resulting `crop.npy` + `meta.json` as a pipeline input (see “Run from a RAW crop” above).
 
+## Scene-pack runner (batch A/B + report)
+Run a folder of scenes through baseline vs candidate configs and emit a consolidated JSON report:
+```bash
+python -m mini_isp.tools.scene_pack \
+  --inputs data/scenes \
+  --out runs/scene_pack_demo \
+  --name denoise_tweak_01 \
+  --baseline-set stages.denoise.method=gaussian \
+  --candidate-set stages.denoise.method=chroma_gaussian
+```
+Report output:
+```
+runs/scene_pack_demo/scene_pack_denoise_tweak_01.json
+```
+If your inputs include `crop.npy`, ensure each crop lives in its own folder with a sibling `meta.json`. Use `--skip-errors` to ignore invalid inputs.
+
 ## Repo conventions
 - **No breaking changes** to `manifest.json` schema or viewer asset paths (compatibility matters).
 - New optional outputs go under `stages/<nn>_<name>/extra/` or additional optional JSON files.
