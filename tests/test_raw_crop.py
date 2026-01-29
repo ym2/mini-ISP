@@ -79,3 +79,31 @@ def test_rawpy_optional(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     assert crop.shape == (2, 2)
     assert crop.dtype == np.uint16
     assert meta["cfa_pattern"] == "RGGB"
+
+
+def test_run_pipeline_with_npy_input(tmp_path: Path) -> None:
+    import json
+    from mini_isp.run import DEFAULT_CONFIG, run_pipeline
+
+    mosaic = np.zeros((4, 4), dtype=np.float32)
+    crop_dir = tmp_path / "crop"
+    crop_dir.mkdir(parents=True, exist_ok=True)
+    np.save(crop_dir / "crop.npy", mosaic)
+    meta = {
+        "cfa_pattern": "RGGB",
+        "black_level": 0.0,
+        "white_level": 1.0,
+        "bit_depth": 10,
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4,
+    }
+    (crop_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    config = json.loads(json.dumps(DEFAULT_CONFIG))
+    config["input"]["path"] = str(crop_dir / "crop.npy")
+    config["output"]["dir"] = str(tmp_path / "runs")
+    config["output"]["name"] = "npy_run"
+    run_root = run_pipeline(config)
+    assert (Path(run_root) / "stages" / "00_raw_norm" / "debug.json").exists()

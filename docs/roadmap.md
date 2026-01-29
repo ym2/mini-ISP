@@ -68,8 +68,8 @@ All v0.2 work must be **backward-compatible** with v0.1 runs:
 
 - **M6 — RAW crop utility (testing support)**
   - Add a small, optional utility to generate deterministic Bayer RAW crops for faster ISP iteration and validation.
-  - Support cropping from real RAW/DNG inputs using the same RAW loader as the pipeline (e.g., rawpy), without modifying the ISP run flow.
-  - Output cropped Bayer mosaics (and minimal metadata sidecar if needed) suitable for direct use as pipeline inputs.
+  - Support cropping from real RAW inputs using the same RAW loader as the pipeline (e.g., rawpy), without modifying the ISP run flow.
+  - Output a cropped Bayer mosaic plus minimal metadata; add a dev-only input path so mini_isp.run can load crop.npy + meta.json as a third input option (alongside RAW and PNG bootstrap).
   - Scope is developer/testing support only (not a pipeline stage; no changes to run-folder layout, manifest.json, or viewer behavior).
   - Done when: developers can reliably generate small RAW crops (e.g., 256–1024 px) to speed up iteration, isolate artifacts, and perform reproducible A/B comparisons.
   

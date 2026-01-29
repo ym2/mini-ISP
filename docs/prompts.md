@@ -652,3 +652,36 @@ Deliverables
 (1) one command to install optional RAW deps (if needed; e.g., pip install -r requirements-raw.txt or pip install rawpy)
 (2) one command to run pytest -q
 (3) one example CLI command that generates a crop from a RAW/DNG file
+
+### Patch prompt 1 — Add crop.npy + meta.json input path
+v0.2-M6 Patch — Add crop.npy + meta.json input path
+Add a dev-only input option to python -m mini_isp.run so --input may point to a Bayer mosaic saved by the RAW crop utility (crop.npy + meta.json). This is a third input type alongside PNG bootstrap and RAW/DNG.
+
+Task
+	•	Extend input handling in mini_isp.run: if --input ends with .npy, load it as a RAW Bayer mosaic; require meta.json in the same directory (Path(input).with_name("meta.json")).
+	•	Use meta.json to populate cfa_pattern, black_level, white_level, bit_depth (and validate crop info keys x,y,w,h exist).
+	•	Treat this path like the RAW mosaic path after ingestion: preserve pipeline behavior downstream of raw_norm; do not change run-folder layout, manifest schema, viewer, or docs.
+
+Input contract
+	•	crop.npy: 2D array H×W; dtype either float32 (already normalized ~[0,1]) or uint16 (sensor code values).
+	•	meta.json required keys: cfa_pattern, black_level, white_level, bit_depth, x, y, w, h. (Optional: source_path for provenance.)
+
+Behavior
+	•	If crop.npy is float32: assume normalized; clip to [0,1].
+	•	If crop.npy is uint16: normalize via (raw - black) / max(white - black, eps) with eps=1e-6; clip to [0,1].
+	•	Propagate metadata the same way the RAW/DNG path does: populate frame meta and the existing manifest input fields for CFA/levels/bit depth.
+
+Validation
+	•	Error if meta.json missing or required keys absent; error if array is not 2D; error if dtype is not float32 or uint16.
+
+Tests (pytest)
+	•	Unit: load synthetic .npy + meta.json for both float32 and uint16; assert correct dtype/shape, normalization+clipping for uint16, and metadata propagation matches expectations.
+	•	Integration: run mini_isp.run with a temporary crop.npy + meta.json; assert the run succeeds and expected stage artifacts exist (at minimum 00_raw_norm/debug.json).
+
+Constraints
+	•	No changes to run-folder layout, manifest.json schema, viewer assets/paths, or docs; no new heavy deps; pytest -q must pass.
+
+Deliverables
+	•	One command to run tests: pytest -q
+	•	One example command:
+python -m mini_isp.run --input crops/raw_demo/crop.npy --out runs --pipeline_mode classic --name crop_demo

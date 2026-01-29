@@ -68,6 +68,16 @@ Open:
 http://localhost:8000/runs/raw_demo/viewer/index.html?manifest=/runs/raw_demo/manifest.json
 ```
 
+### Run from a RAW crop (crop.npy + meta.json)
+```bash
+python -m mini_isp.run   --input crops/raw_demo/crop.npy   --out runs   --pipeline_mode classic   --name crop_demo
+```
+
+Open:
+```
+http://localhost:8000/runs/crop_demo/viewer/index.html?manifest=/runs/crop_demo/manifest.json
+```
+
 ## A/B compare workflow
 1) Create two runs (example: different denoise methods):
 ```bash
@@ -98,6 +108,7 @@ Generate small, deterministic Bayer crops for fast iteration and reproducible A/
 ```bash
 python -m mini_isp.tools.raw_crop --input path/to/sample.dng --out crops/raw_demo --x 100 --y 200 --w 512 --h 512 --dtype float32
 ```
+Use the resulting `crop.npy` + `meta.json` as a pipeline input (see “Run from a RAW crop” above).
 
 ## Repo conventions
 - **No breaking changes** to `manifest.json` schema or viewer asset paths (compatibility matters).

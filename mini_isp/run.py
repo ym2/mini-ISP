@@ -144,8 +144,44 @@ def is_raw_path(path: str) -> bool:
     return ext in {".dng", ".nef", ".cr2", ".arw", ".rw2", ".orf", ".raf", ".raw"}
 
 
+def load_npy_mosaic(path: str) -> Frame:
+    meta_path = os.path.join(os.path.dirname(path), "meta.json")
+    if not os.path.exists(meta_path):
+        raise FileNotFoundError("meta.json not found next to crop.npy")
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta_json = json.load(f)
+    required = ["cfa_pattern", "black_level", "white_level", "bit_depth", "x", "y", "w", "h"]
+    missing = [key for key in required if key not in meta_json]
+    if missing:
+        raise ValueError(f"meta.json missing required keys: {', '.join(missing)}")
+    mosaic = np.load(path)
+    if mosaic.ndim != 2:
+        raise ValueError("crop.npy must be a 2D mosaic")
+    if mosaic.dtype == np.float32:
+        mosaic_norm = np.clip(mosaic, 0.0, 1.0).astype(np.float32)
+    elif mosaic.dtype == np.uint16:
+        mosaic_norm = normalize_raw_mosaic(
+            mosaic, float(meta_json["black_level"]), float(meta_json["white_level"])
+        )
+    else:
+        raise ValueError("crop.npy dtype must be float32 or uint16")
+
+    meta = {
+        "source_path": path,
+        "bit_depth": meta_json.get("bit_depth"),
+        "black_level": float(meta_json["black_level"]),
+        "white_level": float(meta_json["white_level"]),
+        "cfa_pattern": meta_json.get("cfa_pattern", "RGGB"),
+        "raw_mosaic": True,
+        "input_kind": "npy",
+    }
+    return Frame(image=mosaic_norm, meta=meta)
+
+
 def load_input_frame(config: Dict[str, Any]) -> Frame:
     input_path = config["input"]["path"]
+    if input_path.lower().endswith(".npy"):
+        return load_npy_mosaic(input_path)
     if is_raw_path(input_path):
         mosaic, raw_meta = load_raw_mosaic(input_path, config["input"].get("bayer_pattern", "RGGB"))
         black_level = raw_meta.get("black_level", 0.0)
