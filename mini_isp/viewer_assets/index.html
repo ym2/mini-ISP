@@ -25,6 +25,16 @@
               <button id="toggle-debug">Debug</button>
             </div>
           </div>
+          <div id="diagnostics-panel" class="diagnostics-panel">
+            <div class="panel-header">Diagnostics</div>
+            <div id="diagnostics-controls" class="diagnostics-controls">
+              <button data-diag="preview" class="diag-btn active">Preview</button>
+              <button data-diag="false_color" class="diag-btn">False color</button>
+              <button data-diag="zipper" class="diag-btn">Zipper</button>
+              <button data-diag="halo" class="diag-btn">Halo</button>
+            </div>
+            <div id="diagnostics-status" class="diagnostics-status">Diagnostics: N/A</div>
+          </div>
           <div id="compare-grid" class="compare-grid">
             <div class="compare-card">
               <div class="compare-label" id="label-a">A</div>
@@ -41,8 +51,34 @@
           </div>
           <div id="timing-delta" class="timing timing-delta"></div>
         </div>
-        <pre id="debug-a" class="debug hidden"></pre>
-        <pre id="debug-b" class="debug hidden"></pre>
+        <div id="metrics-panel" class="metrics-panel">
+          <div class="panel-header">Metrics</div>
+          <div class="metrics-grid">
+            <div class="metrics-card">
+              <div class="compare-label" id="metrics-label-a">A</div>
+              <div id="metrics-a" class="metrics-table">Metrics: N/A</div>
+            </div>
+            <div class="metrics-card">
+              <div class="compare-label" id="metrics-label-b">B</div>
+              <div id="metrics-b" class="metrics-table">Metrics: N/A</div>
+            </div>
+          </div>
+          <div class="panel-header">Diff metrics</div>
+          <div id="diff-metrics" class="metrics-table">Diff metrics: N/A</div>
+        </div>
+        <div id="debug-panel" class="debug-panel hidden">
+          <div class="panel-header">Debug</div>
+          <div class="debug-grid">
+            <div class="debug-card">
+              <div class="compare-label" id="debug-label-a">A</div>
+              <pre id="debug-a" class="debug"></pre>
+            </div>
+            <div class="debug-card">
+              <div class="compare-label" id="debug-label-b">B</div>
+              <pre id="debug-b" class="debug"></pre>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
     <script src="app.js"></script>

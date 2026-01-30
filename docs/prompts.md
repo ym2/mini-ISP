@@ -742,3 +742,63 @@ python -m mini_isp.tools.scene_pack \
   --name denoise_tweak_01 \
   --baseline-set stages.denoise.method=gaussian \
   --candidate-set stages.denoise.method=chroma_gaussian
+
+---
+
+## v0.3-M1 — Diagnostics surfaced in viewer (non-breaking)
+
+### Final prompt
+v0.3-M1 — Diagnostics surfaced in viewer (non-breaking)
+
+Expose existing metrics/diagnostics in the static viewer UI (single-run and compare modes), without changing run layout, manifest.json, or diagnostics file formats.
+
+Scope
+	•	Viewer only: static index.html / app.js / styles.css (no build tooling).
+	•	Use existing artifacts under each stage folder, typically:
+	•	stages/<nn>_<name>/extra/metrics.json
+	•	stages/<nn>_<name>/extra/diff_metrics.json (if present)
+	•	stages/<nn>_<name>/extra/diagnostics/false_color.png, zipper.png, halo.png (diagnostic images, if present)
+
+Behavior
+	•	Metrics panel
+	•	Add a small “Metrics” panel in the right-hand column (below or near the existing debug JSON).
+	•	For the current stage:
+	•	In single-run mode: load metrics.json (if it exists) and render a simple key→value table for the top-level numeric fields (e.g., min, max, p01, p99, luma_mean, clip_pct, etc.).
+	•	In compare mode: show A and B side-by-side in the same panel (two columns, same keys where possible).
+	•	If metrics.json is missing: show a small “Metrics: N/A” message instead of throwing.
+	•	Diff metrics section
+	•	If diff_metrics.json exists for the current stage, show a small “Diff metrics” subsection.
+	•	Display key fields such as l1, l2, psnr (and any other top-level numeric fields) in a simple table.
+	•	In compare mode, only show diff metrics that actually exist (no extra logic needed beyond null-checking).
+	•	Diagnostics viewer
+	•	Add a “Diagnostics” area that lists available diagnostic images for the current stage:
+	•	Look for false_color.png, zipper.png, halo.png under extra/diagnostics/ (fallback to extra/ if needed).
+	•	For single-run mode: allow the user to toggle between the main preview and each diagnostic image (e.g., via small buttons or a dropdown).
+	•	For compare mode: when a diagnostic is selected, show A and B diagnostics side-by-side if both exist; if only one side has the image, show that side and mark the other as “N/A”.
+	•	If no diagnostics are present for the stage, show a simple “Diagnostics: N/A” label (no errors).
+	•	Graceful behavior
+	•	All new UI must fail gracefully when some or all artifacts are missing:
+	•	no exceptions in JS if a JSON or PNG is absent
+	•	clear “N/A” labels instead of blank/broken UI
+	•	Existing viewer interactions (stage selection, preview, debug display, compare sync) must continue to work as before.
+
+Constraints
+	•	Do not change:
+	•	run-folder layout
+	•	manifest.json schema
+	•	metrics/diagnostics file formats or paths
+	•	No new dependencies or build tools; keep everything as plain JS/HTML/CSS.
+	•	Keep code deterministic and simple (no async race conditions between A/B).
+
+Tests
+	•	If you already have a JS test harness, add minimal tests for:
+	•	metric panel rendering with a small fake metrics.json
+	•	diagnostics toggle logic with a fake diagnostics set
+	•	If not, you may skip JS tests for now; Python tests remain unchanged.
+	•	pytest -q must still pass.
+
+Deliverables
+	•	One command to run tests:
+pytest -q
+	•	One viewer URL example for single-run (e.g. http://localhost:8000/viewer/index.html?manifest=...).
+	•	One viewer URL example for compare mode (e.g. ...?compare=compare_bundle.json).

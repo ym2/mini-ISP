@@ -8,7 +8,8 @@ mini-ISP is a compact, modular ISP pipeline you can run on RAW or PNG bootstrap 
 - **Deterministic runs**: stable `runs/<run_id>/` layout with a canonical `manifest.json`.
 - **Per-stage inspectability**: each stage emits `preview.png`, `debug.json`, `timing_ms.json`, and optional `roi.png`.
 - **Static viewer**: step through stages; view preview/ROI/debug/timing; supports **single-run** and **A/B compare** modes.
-- **Optional diagnostics/metrics**: additive outputs under `stages/<nn>_<name>/extra/` (no schema breaks).
+- **Diagnostics/metrics surfaced in viewer**: metrics tables and diagnostics toggles when outputs exist.
+- **Optional diagnostics/metrics outputs**: additive files under `stages/<nn>_<name>/extra/` (no schema breaks).
 - **Config + CLI overrides**: YAML config plus `--set KEY=VALUE` overrides and flags to enable metrics/diagnostics.
 - **Minimal dependencies**: NumPy + Pillow/PyYAML; optional RAW support via `rawpy`.
 
@@ -98,10 +99,12 @@ python -m http.server 8000
 ```
 
 ## Metrics / diagnostics
-Enable metrics and diagnostics outputs (files are written under `stages/.../extra/`):
+Enable metrics and diagnostics outputs (files are written under `stages/.../extra/` and `stages/.../extra/diagnostics/`):
 ```bash
 python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name metrics_demo   --enable-metrics --enable-diagnostics
 ```
+
+Viewer usage: the Metrics panel and Diagnostics toggles appear when these files exist.
 
 ## RAW crop utility (testing support)
 Generate small, deterministic Bayer crops for fast iteration and reproducible A/B tests:

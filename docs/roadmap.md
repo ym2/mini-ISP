@@ -98,6 +98,7 @@ Notes:
 - **M2 — Classical tone/DRC refinement**
   - Refine `tone` / DRC baselines (e.g., `tone.method: reinhard|filmic`) using v0.2 compare mode + metrics/diagnostics + the new viewer panels, targeting better highlight handling and local contrast without obvious artifacts.
   - Keep outputs deterministic; tune params (e.g., shoulder strength, mid-tone contrast) and record them cleanly in `debug.json`.
+  - As part of this tuning, simplify the viewer metrics panel to highlight a small set of key metrics (e.g., PSNR, luma/mean, clipping-related metrics) that are most useful for evaluating tone/DRC changes, while still remaining robust if additional metrics are present.
   - Done when: A/B comparisons on a small scene pack show consistent improvement (metrics + visual inspection) with no regressions in dark regions or skin tones.
 
 - **M3 — HDR-readiness hooks**
