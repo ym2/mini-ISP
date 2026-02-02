@@ -24,6 +24,7 @@ const metricsPanelB = document.getElementById("metrics-b");
 const diffMetricsPanel = document.getElementById("diff-metrics");
 const diagnosticsControls = document.getElementById("diagnostics-controls");
 const diagnosticsStatus = document.getElementById("diagnostics-status");
+const metricsToggle = document.getElementById("metrics-toggle");
 
 let manifest = null;
 let manifestB = null;
@@ -36,6 +37,10 @@ let diagMode = "preview";
 let metricsRequestId = 0;
 let diagRequestId = 0;
 let diagAvailability = {};
+let showAllMetrics = false;
+let metricsCache = { a: null, b: null };
+
+const METRICS_DEFAULT_KEYS = ["luma_mean", "clip_pct", "p99", "max", "min", "psnr"];
 
 function getQueryParam(name) {
   const params = new URLSearchParams(window.location.search);
@@ -372,6 +377,15 @@ function renderMetricsTable(container, data, keys, emptyLabel) {
   container.innerHTML = `<table><tbody>${rows}</tbody></table>`;
 }
 
+function selectMetricKeys(dataA, dataB) {
+  const allKeys = Array.from(new Set([...Object.keys(dataA || {}), ...Object.keys(dataB || {})]));
+  if (showAllMetrics) {
+    return allKeys.sort();
+  }
+  const subset = METRICS_DEFAULT_KEYS.filter((key) => allKeys.includes(key));
+  return subset;
+}
+
 function extractNumericMetrics(obj) {
   if (!obj) return {};
   const out = {};
@@ -423,20 +437,27 @@ function updateMetrics(stageA, stageB) {
       if (requestId !== metricsRequestId) return;
       const metricsAData = extractNumericMetrics(dataA);
       const metricsBData = extractNumericMetrics(dataB);
-      const keys = compareBundle
-        ? Array.from(new Set([...Object.keys(metricsAData), ...Object.keys(metricsBData)])).sort()
-        : Object.keys(metricsAData).sort();
-      renderMetricsTable(metricsPanelA, metricsAData, keys, "Metrics");
-      if (compareBundle) {
-        renderMetricsTable(metricsPanelB, metricsBData, keys, "Metrics");
-      } else {
-        metricsPanelB.textContent = "";
-      }
+      metricsCache = { a: metricsAData, b: metricsBData };
+      renderMetricsPanels();
       const diffMetrics = extractNumericMetrics(diffData);
       const diffKeys = Object.keys(diffMetrics).sort();
       renderMetricsTable(diffMetricsPanel, diffMetrics, diffKeys, "Diff metrics");
     }
   );
+}
+
+function renderMetricsPanels() {
+  const metricsAData = metricsCache.a || {};
+  const metricsBData = metricsCache.b || {};
+  const keys = compareBundle ? selectMetricKeys(metricsAData, metricsBData) : selectMetricKeys(metricsAData, {});
+  renderMetricsTable(metricsPanelA, metricsAData, keys, "Metrics");
+  if (compareBundle) {
+    renderMetricsTable(metricsPanelB, metricsBData, keys, "Metrics");
+  } else {
+    metricsPanelB.textContent = "";
+  }
+  metricsToggle.textContent = showAllMetrics ? "Show subset" : "Show all";
+  metricsToggle.classList.toggle("active", showAllMetrics);
 }
 
 function checkImage(path) {
@@ -557,6 +578,11 @@ diagnosticsControls.addEventListener("click", (event) => {
   const stage = compareStages ? compareStages[activeIndex] : { a: manifest.stages[activeIndex] };
   updateRoiToggle(stage.a, stage.b);
   updatePreview(stage.a, stage.b);
+});
+
+metricsToggle.addEventListener("click", () => {
+  showAllMetrics = !showAllMetrics;
+  renderMetricsPanels();
 });
 
 loadManifests().then(() => {

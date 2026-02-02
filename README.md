@@ -104,7 +104,18 @@ Enable metrics and diagnostics outputs (files are written under `stages/.../extr
 python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name metrics_demo   --enable-metrics --enable-diagnostics
 ```
 
-Viewer usage: the Metrics panel and Diagnostics toggles appear when these files exist.
+Viewer usage: the Metrics panel and Diagnostics toggles appear when these files exist. The Metrics panel defaults to a small subset and includes a “Show all” toggle for the full list.
+
+## Tone (parametric Reinhard)
+Tune Reinhard with `--set` overrides:
+```bash
+python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name tone_demo \
+  --set stages.tone.method=reinhard \
+  --set stages.tone.exposure=1.0 \
+  --set stages.tone.white_point=1.0 \
+  --set stages.tone.gamma=1.0
+```
+Replace the parameter values above with your desired settings.
 
 ## RAW crop utility (testing support)
 Generate small, deterministic Bayer crops for fast iteration and reproducible A/B tests:

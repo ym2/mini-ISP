@@ -95,10 +95,11 @@ Notes:
   - Work in both single-run and compare modes; when metrics/diagnostics are missing for a stage or side, fall back gracefully (e.g., show “N/A”).
   - Done when: the viewer can show basic numeric metrics for the current stage and, where available, let the user view at least one diagnostic overlay per side—without regressing any existing viewer behavior.
 
-- **M2 — Classical tone/DRC refinement**
-  - Refine `tone` / DRC baselines (e.g., `tone.method: reinhard|filmic`) using v0.2 compare mode + metrics/diagnostics + the new viewer panels, targeting better highlight handling and local contrast without obvious artifacts.
-  - Keep outputs deterministic; tune params (e.g., shoulder strength, mid-tone contrast) and record them cleanly in `debug.json`.
-  - As part of this tuning, simplify the viewer metrics panel to highlight a small set of key metrics (e.g., PSNR, luma/mean, clipping-related metrics) that are most useful for evaluating tone/DRC changes, while still remaining robust if additional metrics are present.
+- **M2 — Classical tone/DRC refinement (parametric Reinhard)**
+  - Turn `tone.method: reinhard` into a small, parametric classical curve (e.g., exposure / white_point / gamma), keeping defaults backward-compatible with the existing `x / (1 + x)` behavior.
+  - Use v0.2 compare mode, metrics/diagnostics, the v0.3-M1 viewer panels, and the scene-pack runner to tune Reinhard for better highlight handling and local contrast without obvious artifacts.
+  - Keep outputs deterministic; record all tone parameters cleanly in `debug.json` (including any optional clipping flags/ranges).
+  - In the viewer metrics panel, show a small **default** subset of key metrics (e.g., luma_mean, clip_pct, p99, PSNR when available) and provide a simple “Show all metrics” toggle that expands to the full metrics set, remaining robust if additional metrics are present.
   - Done when: A/B comparisons on a small scene pack show consistent improvement (metrics + visual inspection) with no regressions in dark regions or skin tones.
 
 - **M3 — HDR-readiness hooks**

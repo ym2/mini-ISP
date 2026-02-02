@@ -271,6 +271,29 @@ body.single-run #preview-b {
   max-height: 70vh;
 }
 
+.metrics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.metrics-toggle {
+  background: transparent;
+  border: 1px solid #2b324a;
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.metrics-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(63, 208, 201, 0.08);
+}
+
 body.single-run .metrics-panel {
   grid-column: 1;
   max-width: var(--single-col);

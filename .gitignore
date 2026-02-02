@@ -214,5 +214,7 @@ __marimo__/
 # Generated runs
 runs/
 
-# Local sample input
-data/sample.png
+# Local data and crops
+data/
+crops/
+

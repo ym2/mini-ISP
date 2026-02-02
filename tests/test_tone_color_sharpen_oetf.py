@@ -18,6 +18,27 @@ def test_tone_methods_monotonic() -> None:
     assert np.all(np.diff(out_filmic[0, :, 0]) >= 0)
 
 
+def test_reinhard_parametric_ramp_compresses_highlights() -> None:
+    x = np.linspace(0.0, 8.0, 64, dtype=np.float32)
+    img = np.stack([x, x, x], axis=1).reshape(1, -1, 3)
+    frame = Frame(image=img, meta={})
+    out = stage_tone(
+        frame,
+        {"method": "reinhard", "exposure": 1.0, "white_point": 1.0, "gamma": 1.0},
+    ).frame.image
+    assert out.dtype == np.float32
+    assert out.shape == img.shape
+    assert np.all(np.isfinite(out))
+    assert np.all(np.diff(out[0, :, 0]) >= 0)
+    x_vals = x
+    y_vals = out[0, :, 0]
+    gains = np.zeros_like(y_vals)
+    np.divide(y_vals, x_vals, out=gains, where=x_vals > 0)
+    mid_mask = (x_vals >= 0.2) & (x_vals <= 0.4)
+    hi_mask = (x_vals >= 0.8) & (x_vals <= 1.0)
+    assert float(np.mean(gains[hi_mask])) < float(np.mean(gains[mid_mask]))
+
+
 def test_color_adjust_identity_noop() -> None:
     img = np.random.default_rng(0).random((4, 4, 3), dtype=np.float32)
     frame = Frame(image=img, meta={})

@@ -802,3 +802,35 @@ Deliverables
 pytest -q
 	•	One viewer URL example for single-run (e.g. http://localhost:8000/viewer/index.html?manifest=...).
 	•	One viewer URL example for compare mode (e.g. ...?compare=compare_bundle.json).
+
+## v0.3-M2 — Classical tone/DRC refinement (parametric Reinhard)
+
+### Final prompt
+v0.3-M2 — Classical tone/DRC refinement (parametric Reinhard)
+
+Turn tone.method=reinhard into a tunable classical tone-mapping curve and validate improvements using compare mode, metrics/diagnostics, the v0.3-M1 viewer panels, and the scene-pack runner. Focus on better highlight handling and local contrast without introducing new artifacts. No schema/layout changes.
+
+Requirements
+	•	Stage: tone only (RGB_LINEAR_F32 → RGB_LINEAR_F32); keep outputs deterministic; no new deps; no changes to run layout, manifest.json schema, or viewer asset paths; no docs edits.
+	•	Parametrize Reinhard under stages.tone with a small set of scalar params:
+	•	exposure (float, default 1.0)
+	•	white_point (float, default 1.0, chosen so defaults match the previous x/(1+x) behavior)
+	•	gamma (float, default 1.0)
+	•	Base Reinhard curve: operate in linear RGB per channel with
+	x_scaled = exposure * image;
+	y = x_scaled / (1.0 + x_scaled / white_point);
+	out = y ** (1.0 / gamma) (all float32, no implicit clipping).
+	•	Keep defaults stable and record all params cleanly under debug.params.
+	•	If clipping is used, make it opt-in and record clip_applied + clip_range in debug.
+	•	Viewer metrics panel: keep consuming the full metrics JSON, but:
+	•	show a small default subset (e.g. luma_mean, clip_pct, p99, PSNR when available),
+	•	add a “Show all metrics” toggle in the metrics panel header that expands to the full metrics set for both sides in compare mode,
+	•	default to the subset view on each page load (no persistence across sessions).
+
+Tests (pytest)
+	•	Synthetic test on a small HDR-like ramp: verify the parametric Reinhard curve is monotonic, compresses highlights (bright inputs reduced more than mids), preserves ordering (no inversions), and keeps dtype/shape unchanged with finite values.
+
+Deliverables
+	•	python -m pytest -q
+	•	One scene-pack run using mini_isp.tools.scene_pack + --set overrides comparing baseline vs tuned tone.method=reinhard across a small set of scenes; tuned config should show consistent metric + visual improvements with no regressions in dark regions or skin tones.
+	•	(Optional, but recommended): two mini_isp.run calls on a representative single scene (baseline vs tuned Reinhard) and the corresponding viewer URLs, to manually inspect tone behavior with the updated metrics panel.

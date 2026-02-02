@@ -554,8 +554,16 @@ def stage_demosaic_stub(frame: Frame, params: Dict[str, Any]) -> StageResult:
     return StageResult(frame=Frame(image=rgb, meta=dict(frame.meta)), metrics={"method": "replicate"})
 
 
-def _tone_reinhard(image: np.ndarray) -> np.ndarray:
-    return image / (1.0 + image)
+def _tone_reinhard(image: np.ndarray, exposure: float, white_point: float, gamma: float) -> np.ndarray:
+    eps = 1e-6
+    exposure = float(exposure)
+    white_point = max(float(white_point), eps)
+    gamma = max(float(gamma), eps)
+    x_scaled = image * exposure
+    y = x_scaled / (1.0 + x_scaled / white_point)
+    if gamma == 1.0:
+        return y.astype(np.float32)
+    return np.power(y, 1.0 / gamma).astype(np.float32)
 
 
 def _tone_filmic(image: np.ndarray) -> np.ndarray:
@@ -577,7 +585,10 @@ def stage_tone(frame: Frame, params: Dict[str, Any]) -> StageResult:
         return StageResult(frame=_copy_frame(frame), metrics={"warning": "tone expects RGB image"})
     method = str(params.get("method", "reinhard")).lower()
     if method == "reinhard":
-        out = _tone_reinhard(image)
+        exposure = float(params.get("exposure", 1.0))
+        white_point = float(params.get("white_point", 1.0))
+        gamma = float(params.get("gamma", 1.0))
+        out = _tone_reinhard(image, exposure, white_point, gamma)
     elif method == "filmic":
         out = _tone_filmic(image)
     else:
@@ -592,6 +603,15 @@ def stage_tone(frame: Frame, params: Dict[str, Any]) -> StageResult:
         clip_applied = True
         clip_range = [lo, hi]
 
+    resolved_params = {"method": method, "clip": clip}
+    if method == "reinhard":
+        resolved_params.update(
+            {
+                "exposure": exposure,
+                "white_point": white_point,
+                "gamma": gamma,
+            }
+        )
     metrics = {
         "clip_applied": clip_applied,
         "clip_range": clip_range,
@@ -599,7 +619,7 @@ def stage_tone(frame: Frame, params: Dict[str, Any]) -> StageResult:
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
         "p99": float(np.percentile(out, 99.0)),
-        "resolved_params": {"method": method, "clip": clip},
+        "resolved_params": resolved_params,
     }
     return StageResult(frame=Frame(image=out.astype(np.float32), meta=dict(frame.meta)), metrics=metrics)
 
