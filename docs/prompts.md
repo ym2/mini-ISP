@@ -578,6 +578,57 @@ Deliverables:
 	•	One command to run tests (pytest -q).
 	•	One command to run: python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classic --name raw_demo (or with whatever RAW file you have).
 
+### Patch prompt 2 — RAW white-balance support (rawpy)
+v0.2-M5 Patch — RAW white-balance support (rawpy)
+
+Context:
+	•	Previous RAW runs used unity gains [1,1,1], which can produce a green cast. This patch reads camera/daylight WB from rawpy in the RAW/DNG path and feeds effective gains into wb_gains by default (PNG bootstrap unchanged).
+
+Task:
+	•	In the RAW/DNG input path, obtain WB gains from rawpy and pass them into wb_gains when no explicit wb_gains are set.
+
+Priority order (deterministic):
+	1.	Use raw.camera_whitebalance (as-shot) when available.
+	2.	Else use raw.daylight_whitebalance (preset daylight WB).
+	3.	Else fall back to unity [1.0, 1.0, 1.0].
+
+Behavior:
+	•	Normalize gains so green averages to 1.0:
+	•	use the average of the two green positions in the CFA as the normalization base
+	•	scale R and B accordingly
+	•	Apply these normalized gains in wb_gains for RAW inputs (unless overridden by config).
+	•	Record the chosen source and effective gains in:
+	•	wb_gains stage debug.json:
+	•	params.wb_gains
+	•	params.wb_source = "camera_whitebalance" | "daylight_whitebalance" | "unity"
+	•	meta.wb_gains and meta.wb_applied (if those fields already exist)
+	•	any existing input metadata in the manifest that tracks WB (if present)
+
+Constraints:
+	•	No changes to run-folder layout, manifest.json schema, viewer assets/paths, or docs.
+	•	rawpy remains optional (lazy import); no new heavy dependencies.
+	•	PNG bootstrap behavior unchanged.
+	•	pytest -q must pass.
+
+Tests (pytest):
+	•	Use mocked rawpy (no real RAW needed).
+	1.	camera_whitebalance present:
+	•	gains normalized (green ≈ 1.0)
+	•	wb_source == "camera_whitebalance"
+	2.	Only daylight_whitebalance present:
+	•	normalized gains from daylight WB
+	•	wb_source == "daylight_whitebalance"
+	3.	Neither present:
+	•	gains [1.0, 1.0, 1.0]
+	•	wb_source == "unity"
+	•	Where practical, assert:
+	•	meta.wb_gains matches the effective gains
+	•	wb_gains debug.json.params.wb_gains matches the effective gains
+
+Deliverables:
+	•	One command to run tests (pytest -q).
+	•	One command to run: python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classic --name raw_demo
+
 ---
 
 ## v0.2-M6 — RAW crop utility (testing support)

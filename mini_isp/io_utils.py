@@ -85,6 +85,18 @@ def write_yaml(path: str, data: Dict[str, Any]) -> None:
             json.dump(data, f, indent=2, sort_keys=False)
 
 
+def _color_desc_str(color_desc: Optional[Any]) -> str:
+    if color_desc is None:
+        return ""
+    if isinstance(color_desc, bytes):
+        desc = color_desc.decode(errors="ignore")
+    elif hasattr(color_desc, "tobytes"):
+        desc = color_desc.tobytes().decode(errors="ignore")
+    else:
+        desc = str(color_desc)
+    return desc.strip()
+
+
 def derive_cfa_pattern(
     raw_pattern: Optional[np.ndarray], color_desc: Optional[Any], fallback: str
 ) -> str:
@@ -93,13 +105,7 @@ def derive_cfa_pattern(
     pattern = np.asarray(raw_pattern)
     if pattern.shape != (2, 2):
         return fallback
-    if isinstance(color_desc, bytes):
-        desc = color_desc.decode(errors="ignore")
-    elif hasattr(color_desc, "tobytes"):
-        desc = color_desc.tobytes().decode(errors="ignore")
-    else:
-        desc = str(color_desc)
-    desc = desc.strip()
+    desc = _color_desc_str(color_desc)
     if not desc:
         return fallback
     try:
@@ -107,6 +113,61 @@ def derive_cfa_pattern(
     except Exception:
         return fallback
     return letters
+
+
+def _normalize_wb_gains(cfa_pattern: str, gains: Any) -> Tuple[float, float, float]:
+    values = [float(x) for x in gains] if gains is not None else []
+    if not values:
+        return 1.0, 1.0, 1.0
+    if len(values) >= 4 and len(cfa_pattern) == 4:
+        r_vals = [values[i] for i, ch in enumerate(cfa_pattern) if ch == "R" and values[i] > 0]
+        g_vals = [values[i] for i, ch in enumerate(cfa_pattern) if ch == "G" and values[i] > 0]
+        b_vals = [values[i] for i, ch in enumerate(cfa_pattern) if ch == "B" and values[i] > 0]
+        r = float(np.mean(r_vals)) if r_vals else None
+        g = float(np.mean(g_vals)) if g_vals else None
+        b = float(np.mean(b_vals)) if b_vals else None
+        if r is None or g is None or b is None:
+            return 1.0, 1.0, 1.0
+    elif len(values) >= 3:
+        r, g, b = values[0], values[1], values[2]
+    else:
+        r = g = b = values[0]
+    g_base = g if abs(g) > 1e-12 else 1.0
+    return r / g_base, 1.0, b / g_base
+
+
+def _normalize_wb_gains_from_desc(desc: str, gains: Any) -> Optional[Tuple[float, float, float]]:
+    values = [float(x) for x in gains] if gains is not None else []
+    if not desc or not values:
+        return None
+    if len(values) < len(desc):
+        return None
+    r_vals = [values[i] for i, ch in enumerate(desc) if ch == "R" and values[i] > 0]
+    g_vals = [values[i] for i, ch in enumerate(desc) if ch == "G" and values[i] > 0]
+    b_vals = [values[i] for i, ch in enumerate(desc) if ch == "B" and values[i] > 0]
+    if not r_vals or not g_vals or not b_vals:
+        return None
+    r = float(np.mean(r_vals))
+    g = float(np.mean(g_vals))
+    b = float(np.mean(b_vals))
+    g_base = g if abs(g) > 1e-12 else 1.0
+    return r / g_base, 1.0, b / g_base
+
+
+def _select_raw_wb(raw: Any, cfa_pattern: str, color_desc: str) -> Tuple[Tuple[float, float, float], str]:
+    camera_wb = getattr(raw, "camera_whitebalance", None)
+    if camera_wb is not None:
+        gains = _normalize_wb_gains_from_desc(color_desc, camera_wb)
+        if gains is None:
+            gains = _normalize_wb_gains(cfa_pattern, camera_wb)
+        return gains, "camera_whitebalance"
+    daylight_wb = getattr(raw, "daylight_whitebalance", None)
+    if daylight_wb is not None:
+        gains = _normalize_wb_gains_from_desc(color_desc, daylight_wb)
+        if gains is None:
+            gains = _normalize_wb_gains(cfa_pattern, daylight_wb)
+        return gains, "daylight_whitebalance"
+    return (1.0, 1.0, 1.0), "unity"
 
 
 def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str, Any]]:
@@ -142,17 +203,21 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
             if np.issubdtype(mosaic.dtype, np.integer):
                 bit_depth = int(np.iinfo(mosaic.dtype).bits)
 
+        color_desc = _color_desc_str(getattr(raw, "color_desc", None))
         cfa_pattern = derive_cfa_pattern(
             getattr(raw, "raw_pattern", None),
             getattr(raw, "color_desc", None),
             fallback_cfa,
         )
+        wb_gains, wb_source = _select_raw_wb(raw, cfa_pattern, color_desc)
 
     meta = {
         "cfa_pattern": cfa_pattern,
         "black_level": float(black_level) if black_level is not None else 0.0,
         "white_level": float(white_level) if white_level is not None else None,
         "bit_depth": bit_depth,
+        "wb_gains": [float(x) for x in wb_gains],
+        "wb_source": wb_source,
     }
     return mosaic, meta
 

@@ -198,6 +198,8 @@ def load_input_frame(config: Dict[str, Any]) -> Frame:
             "black_level": float(black_level),
             "white_level": float(white_level),
             "cfa_pattern": raw_meta.get("cfa_pattern", config["input"].get("bayer_pattern", "RGGB")),
+            "wb_gains": raw_meta.get("wb_gains"),
+            "wb_source": raw_meta.get("wb_source"),
             "raw_mosaic": True,
             "input_kind": "raw",
         }
@@ -250,6 +252,9 @@ def run_pipeline(config: Dict[str, Any]) -> str:
             value = frame.meta.get(key)
             if value is not None:
                 manifest["input"][key] = value
+        wb_gains = frame.meta.get("wb_gains")
+        if wb_gains is not None:
+            manifest["input"]["wb_gains"] = wb_gains
 
     pipeline = build_pipeline(config["pipeline_mode"])
 
@@ -267,6 +272,14 @@ def run_pipeline(config: Dict[str, Any]) -> str:
                 "black_level": frame.meta.get("black_level"),
                 "white_level": frame.meta.get("white_level"),
             }
+        if stage.name == "wb_gains" and "wb_gains" not in stage_config:
+            wb_gains = frame.meta.get("wb_gains")
+            if wb_gains is not None:
+                stage_config = {
+                    **stage_config,
+                    "wb_gains": wb_gains,
+                    "wb_source": frame.meta.get("wb_source", "unity"),
+                }
 
         result, timing_ms = timed_call(stage.run, frame, stage_config)
         frame = result.frame
