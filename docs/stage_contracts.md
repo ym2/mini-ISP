@@ -119,10 +119,11 @@ Artifacts:
 Responsibilities:
 - apply shading gain map (baseline radial model or provided map)
 - avoid runaway gain (cap gain)
+- optional toggle: if `params.enabled=false`, the runner bypasses LSC (no pixel change) while still emitting artifacts; debug reports it was skipped
 
 Artifacts:
 - gain map visualization (optional)
-- debug: gain stats (min/max/mean)
+- debug: gain stats (min/max/mean), or when skipped: `skipped=true` (+ reason)
 
 ---
 

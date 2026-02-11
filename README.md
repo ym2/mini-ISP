@@ -77,6 +77,12 @@ python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode cla
 ```
 Note: if your config explicitly sets `stages.wb_gains.wb_gains` (or `stages.wb_gains.gains`), that wins and `--wb-mode/--wb-gains` are ignored.
 
+LSC toggle (optional):
+```bash
+# Disable lens shading correction (bypass LSC but keep stage artifacts for the viewer).
+python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_no_lsc --set stages.lsc.enabled=false
+```
+
 Open:
 ```
 http://localhost:8000/runs/raw_demo/viewer/index.html?manifest=/runs/raw_demo/manifest.json

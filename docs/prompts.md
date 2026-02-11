@@ -63,6 +63,16 @@ Patch M3 DPC: DPC runs on a Bayer mosaic, so any replacement value must be compu
   - On a synthetic mosaic with different constant values per CFA plane (R/G1/G2/B), DPC must make zero changes (n_fixed==0) across RGGB/BGGR/GRBG/GBRG.
   - Inject a single defect at each CFA site (R/G1/G2/B) and assert DPC fixes exactly that pixel using same-plane neighbors only, across RGGB/BGGR/GRBG/GBRG.
 
+### Patch prompt 2 — Explicit LSC on/off toggle
+Add support for `stages.lsc.enabled: true|false` (default true).
+
+- If `enabled=false`, bypass `lsc` (input RAW mosaic unchanged) but still emit a normal stage folder and `debug.json` noting it was skipped so the viewer/run layout stays consistent.
+- Keep existing implicit-disable options working (`stages.lsc.k=0`, `stages.lsc.gain_cap=1`).
+- Implementation constraint: `pipeline_mode` stage lists are fixed, so the toggle must be handled by the runner (or stage wrapper), not by adding logic only inside `stage_lsc`.
+- Debug: when skipped, ensure `debug.json.params.enabled=false` and `debug.json.metrics.skipped=true` (or equivalent).
+- Tests:
+  - Integration-ish: run the pipeline on PNG bootstrap with `--set stages.lsc.enabled=false` and assert `02_lsc` preview matches `01_dpc` preview exactly and debug reports it was skipped.
+
 ---
 
 ## v0.1-M4 — WB + demosaic

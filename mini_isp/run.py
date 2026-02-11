@@ -21,7 +21,7 @@ from .io_utils import (
     write_yaml,
 )
 from .pipeline import build_pipeline
-from .stages import timed_call
+from .stages import StageResult, timed_call
 from .metrics import build_preview_for_metrics, emit_metrics_and_diagnostics
 from .config_overrides import apply_overrides
 
@@ -337,7 +337,14 @@ def run_pipeline(config: Dict[str, Any]) -> str:
                 cli_wb_gains=cli_wb_gains,
             )
 
-        result, timing_ms = timed_call(stage.run, frame, stage_config)
+        if stage.name == "lsc" and stage_config.get("enabled") is False:
+            result = StageResult(
+                frame=Frame(image=np.array(frame.image, copy=True), meta=dict(frame.meta)),
+                metrics={"skipped": True, "skip_reason": "disabled"},
+            )
+            timing_ms = 0.0
+        else:
+            result, timing_ms = timed_call(stage.run, frame, stage_config)
         frame = result.frame
 
         preview = None
