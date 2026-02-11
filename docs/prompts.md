@@ -629,6 +629,54 @@ Deliverables:
 	•	One command to run tests (pytest -q).
 	•	One command to run: python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classic --name raw_demo
 
+### Patch prompt 3 — CLI WB toggles for wb_gains (meta/unity/manual)
+v0.2-M5 Patch — CLI WB toggles for wb_gains (meta/unity/manual)
+
+Context:
+	•	For RAW tuning and debugging/validation, it’s useful to force WB “off” (unity gains) or set manual gains without writing a YAML config.
+	•	The existing CLI `--set` override mechanism is scalar-only, which makes passing a 3-value gains list awkward.
+
+Task:
+	•	Add CLI flags to `python -m mini_isp.run`:
+	•	`--wb-mode {meta,unity,manual}`
+	•	`--wb-gains R G B` (space-separated triple; required when `--wb-mode manual`)
+
+Precedence / defaults:
+	•	Preserve existing `--config` behavior; do not change behavior when these flags are not provided.
+	•	Explicit stage config wins (YAML or `--set`):
+	•	If `stages.wb_gains.wb_gains` (or `stages.wb_gains.gains`) is present in the resolved config, ignore `--wb-mode/--wb-gains`.
+	•	Default wb-mode:
+	•	RAW/DNG inputs → `meta`
+	•	PNG bootstrap inputs → `unity`
+
+Behavior:
+	•	`meta`: use WB gains derived from RAW metadata (rawpy) exactly as in v0.2-M5 Patch prompt 2.
+	•	`unity`: force gains `[1.0, 1.0, 1.0]` regardless of RAW metadata.
+	•	`manual`: parse `--wb-gains R G B` as floats and apply as `[r, g, b]` (apply G to both green sites).
+	•	Record in `wb_gains` stage output (no schema/layout changes):
+	•	`debug.json.params.wb_mode`
+	•	`debug.json.params.wb_source` (actual provenance of applied gains, not the intent):
+	•	when `wb_mode=meta`: `camera_whitebalance|daylight_whitebalance|unity_fallback`
+	•	when `wb_mode=unity`: `unity`
+	•	when `wb_mode=manual`: `manual`
+	•	`debug.json.params.wb_gains` (effective applied gains)
+	•	Propagate to `frame.meta` consistently (e.g., `meta.wb_gains`, `meta.wb_applied`, and `meta.wb_source` if present).
+
+Constraints:
+	•	No changes to run-folder layout, manifest.json schema, viewer assets/paths, or docs.
+	•	No new heavy dependencies.
+	•	pytest -q must pass.
+
+Tests (pytest):
+	•	Unit test: starting from a small config dict, ensure `--wb-mode/--wb-gains` are applied only when no explicit `stages.wb_gains.wb_gains` is set.
+	•	Integration-ish test: run `python -m mini_isp.run` on PNG bootstrap with `--wb-mode unity` and assert `wb_gains` debug reports `wb_mode="unity"` and gains `[1,1,1]`.
+	•	Unit test: `--wb-mode manual` with no `--wb-gains` errors with a clear message.
+
+Deliverables:
+	•	One command to run tests: pytest -q
+	•	Example:
+python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classic --name raw_demo_unity --wb-mode unity
+
 ---
 
 ## v0.2-M6 — RAW crop utility (testing support)

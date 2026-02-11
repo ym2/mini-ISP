@@ -64,6 +64,19 @@ python -m mini_isp.run   --input path/to/sample.dng   --out runs   --pipeline_mo
 ```
 Supported RAW extensions depend on rawpy/LibRaw (e.g., dng/nef/cr2/arw/rw2/orf/raf).
 
+White-balance overrides (optional):
+```bash
+# RAW defaults to --wb-mode meta (use WB gains from RAW metadata).
+python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_meta --wb-mode meta
+
+# Force WB “off” (unity gains).
+python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_unity --wb-mode unity
+
+# Manual gains (R G B).
+python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_manual --wb-mode manual --wb-gains 2.0 1.0 1.5
+```
+Note: if your config explicitly sets `stages.wb_gains.wb_gains` (or `stages.wb_gains.gains`), that wins and `--wb-mode/--wb-gains` are ignored.
+
 Open:
 ```
 http://localhost:8000/runs/raw_demo/viewer/index.html?manifest=/runs/raw_demo/manifest.json

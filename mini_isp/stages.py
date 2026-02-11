@@ -191,6 +191,12 @@ def stage_wb_gains(frame: Frame, params: Dict[str, Any]) -> StageResult:
     out[g2_pos[0]::2, g2_pos[1]::2] *= g_gain
     meta["wb_gains"] = [r_gain, g_gain, b_gain]
     meta["wb_applied"] = True
+    wb_mode = params.get("wb_mode")
+    if wb_mode is not None:
+        meta["wb_mode"] = str(wb_mode)
+    wb_source = params.get("wb_source")
+    if wb_source is not None:
+        meta["wb_source"] = str(wb_source)
     metrics = {
         "wb_gains": [r_gain, g_gain, b_gain],
         "wb_applied": True,

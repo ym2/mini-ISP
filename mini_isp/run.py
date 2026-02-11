@@ -219,6 +219,59 @@ def load_input_frame(config: Dict[str, Any]) -> Frame:
     return Frame(image=image_rgb, meta=meta)
 
 
+def _resolve_wb_gains_stage_params(
+    stage_config: Dict[str, Any],
+    frame_meta: Dict[str, Any],
+    cli_wb_mode: str | None,
+    cli_wb_gains: List[float] | None,
+) -> Dict[str, Any]:
+    """
+    Resolve wb_gains stage parameters, honoring precedence:
+    - Explicit stage config wins (wb_gains/gains already set) -> treat as manual.
+    - Else apply CLI override (meta/unity/manual) with defaults based on input kind.
+    """
+    out = dict(stage_config)
+
+    if "wb_gains" in out or "gains" in out:
+        # Explicit stage gains set by config; ignore CLI intent.
+        out.setdefault("wb_mode", "manual")
+        out.setdefault("wb_source", "manual")
+        return out
+
+    input_kind = str(frame_meta.get("input_kind", "png"))
+    default_mode = "meta" if input_kind == "raw" else "unity"
+    wb_mode = cli_wb_mode or default_mode
+
+    if wb_mode == "manual":
+        if not cli_wb_gains or len(cli_wb_gains) != 3:
+            raise ValueError("wb_mode=manual requires wb_gains=[R,G,B]")
+        out.update(
+            {
+                "wb_mode": "manual",
+                "wb_source": "manual",
+                "wb_gains": [float(cli_wb_gains[0]), float(cli_wb_gains[1]), float(cli_wb_gains[2])],
+            }
+        )
+        return out
+
+    if wb_mode == "unity":
+        out.update({"wb_mode": "unity", "wb_source": "unity", "wb_gains": [1.0, 1.0, 1.0]})
+        return out
+
+    if wb_mode == "meta":
+        wb_gains = frame_meta.get("wb_gains")
+        wb_source = frame_meta.get("wb_source")
+        if wb_gains is None:
+            wb_gains = [1.0, 1.0, 1.0]
+            wb_source = "unity_fallback"
+        if wb_source == "unity":
+            wb_source = "unity_fallback"
+        out.update({"wb_mode": "meta", "wb_source": wb_source or "unity_fallback", "wb_gains": wb_gains})
+        return out
+
+    raise ValueError(f"Unknown wb_mode: {wb_mode}")
+
+
 def run_pipeline(config: Dict[str, Any]) -> str:
     input_path = config["input"]["path"]
     frame = load_input_frame(config)
@@ -258,6 +311,10 @@ def run_pipeline(config: Dict[str, Any]) -> str:
 
     pipeline = build_pipeline(config["pipeline_mode"])
 
+    wb_cli = config.get("_cli", {}).get("wb", {})
+    cli_wb_mode = wb_cli.get("mode")
+    cli_wb_gains = wb_cli.get("gains")
+
     prev_preview = None
     for index, stage in enumerate(pipeline):
         stage_dir = stage_dir_name(index, stage.name)
@@ -272,14 +329,13 @@ def run_pipeline(config: Dict[str, Any]) -> str:
                 "black_level": frame.meta.get("black_level"),
                 "white_level": frame.meta.get("white_level"),
             }
-        if stage.name == "wb_gains" and "wb_gains" not in stage_config:
-            wb_gains = frame.meta.get("wb_gains")
-            if wb_gains is not None:
-                stage_config = {
-                    **stage_config,
-                    "wb_gains": wb_gains,
-                    "wb_source": frame.meta.get("wb_source", "unity"),
-                }
+        if stage.name == "wb_gains":
+            stage_config = _resolve_wb_gains_stage_params(
+                stage_config=stage_config,
+                frame_meta=frame.meta,
+                cli_wb_mode=cli_wb_mode,
+                cli_wb_gains=cli_wb_gains,
+            )
 
         result, timing_ms = timed_call(stage.run, frame, stage_config)
         frame = result.frame
@@ -355,6 +411,20 @@ def main() -> None:
     parser.add_argument("--out", type=str, default=None, help="Override output directory")
     parser.add_argument("--pipeline_mode", type=str, default=None, help="Override pipeline mode")
     parser.add_argument("--name", type=str, default=None, help="Override run id")
+    parser.add_argument(
+        "--wb-mode",
+        choices=["meta", "unity", "manual"],
+        default=None,
+        help="Override wb_gains behavior: meta (RAW metadata), unity, or manual",
+    )
+    parser.add_argument(
+        "--wb-gains",
+        nargs=3,
+        type=float,
+        default=None,
+        metavar=("R", "G", "B"),
+        help="Manual WB gains as space-separated triple (R G B), used only with --wb-mode manual",
+    )
     parser.add_argument("--enable-metrics", action="store_true", help="Enable metrics outputs")
     parser.add_argument("--enable-diagnostics", action="store_true", help="Enable diagnostics outputs")
     parser.add_argument(
@@ -384,6 +454,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.wb_mode != "manual" and args.wb_gains is not None:
+        parser.error("--wb-gains may only be used with --wb-mode manual")
+    if args.wb_mode == "manual" and args.wb_gains is None:
+        parser.error("--wb-gains R G B is required when --wb-mode manual")
+
     config = load_config(args.config)
     if args.input:
         config["input"]["path"] = args.input
@@ -396,6 +471,13 @@ def main() -> None:
 
     if args.overrides:
         config = apply_overrides(config, args.overrides)
+
+    if args.wb_mode is not None:
+        config.setdefault("_cli", {})
+        config["_cli"].setdefault("wb", {})
+        config["_cli"]["wb"]["mode"] = args.wb_mode
+        if args.wb_mode == "manual":
+            config["_cli"]["wb"]["gains"] = [float(x) for x in args.wb_gains]
 
     if args.metrics_target in ("linear", "both"):
         raise SystemExit("linear metrics not implemented yet; use --metrics-target preview")
