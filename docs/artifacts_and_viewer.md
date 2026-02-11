@@ -139,8 +139,13 @@ Example:
 ```json
 {
   "stage": "dpc",
-  "params": { "method": "median", "threshold": 0.25 },
-  "metrics": { "n_fixed": 1240 },
+  "params": { "threshold": 0.25 },
+  "metrics": {
+    "n_fixed": 1240,
+    "threshold": 0.25,
+    "neighbor_policy": "same_cfa_only",
+    "neighbor_stat": "median"
+  },
   "warnings": [],
   "notes": []
 }

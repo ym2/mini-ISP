@@ -113,28 +113,43 @@ def inject_defects_for_test(
 
 
 def stage_dpc(frame: Frame, params: Dict[str, Any]) -> StageResult:
-    # Median-of-neighbors (3x3 excluding center), edge-clamped borders
+    # CFA-aware median-of-neighbors: use same-plane neighbors only (±2 offsets),
+    # ignoring out-of-bounds neighbors (handled as NaNs).
     image = frame.image.astype(np.float32)
     if image.ndim != 2:
         return StageResult(frame=_copy_frame(frame), metrics={"warning": "dpc expects RAW mosaic"})
     threshold = float(params.get("threshold", 0.2))
-    padded = np.pad(image, 1, mode="edge")
+    padded = np.pad(image, 2, mode="constant", constant_values=np.nan)
     h, w = image.shape
+    if h < 4 and w < 4:
+        metrics = {
+            "neighbor_policy": "same_cfa_only",
+            "neighbor_stat": "median",
+            "n_fixed": 0,
+            "threshold": threshold,
+            "min_before": float(np.min(image)),
+            "max_before": float(np.max(image)),
+            "min_after": float(np.min(image)),
+            "max_after": float(np.max(image)),
+        }
+        return StageResult(frame=Frame(image=np.array(image, copy=True), meta=dict(frame.meta)), metrics=metrics)
     neighbors = [
-        padded[0:h, 0:w],
-        padded[0:h, 1 : w + 1],
-        padded[0:h, 2 : w + 2],
-        padded[1 : h + 1, 0:w],
-        padded[1 : h + 1, 2 : w + 2],
-        padded[2 : h + 2, 0:w],
-        padded[2 : h + 2, 1 : w + 1],
-        padded[2 : h + 2, 2 : w + 2],
+        padded[0:h, 2 : w + 2],  # (-2, 0)
+        padded[4 : h + 4, 2 : w + 2],  # (+2, 0)
+        padded[2 : h + 2, 0:w],  # (0, -2)
+        padded[2 : h + 2, 4 : w + 4],  # (0, +2)
+        padded[0:h, 0:w],  # (-2, -2)
+        padded[0:h, 4 : w + 4],  # (-2, +2)
+        padded[4 : h + 4, 0:w],  # (+2, -2)
+        padded[4 : h + 4, 4 : w + 4],  # (+2, +2)
     ]
-    median = np.median(np.stack(neighbors, axis=0), axis=0).astype(np.float32)
+    median = np.nanmedian(np.stack(neighbors, axis=0), axis=0).astype(np.float32)
     diff = np.abs(image - median)
-    mask = diff > threshold
+    mask = (diff > threshold) & np.isfinite(median)
     corrected = np.where(mask, median, image).astype(np.float32)
     metrics = {
+        "neighbor_policy": "same_cfa_only",
+        "neighbor_stat": "median",
         "n_fixed": int(np.sum(mask)),
         "threshold": threshold,
         "min_before": float(np.min(image)),

@@ -103,11 +103,12 @@ Artifacts:
 
 Responsibilities:
 - correct dead/hot pixels (simple median-of-neighbors baseline)
+- **same-CFA-only invariant**: when operating on a Bayer mosaic, any replacement value must be computed from neighbors at the **same CFA site** only (R from R, B from B, and treat the two green sites separately)
 - report number of corrected pixels
 
 Artifacts:
 - optional defect map visualization
-- debug: `n_fixed`, thresholds used
+- debug: `n_fixed`, thresholds used, and neighbor policy/stat (e.g., `neighbor_policy="same_cfa_only"`, `neighbor_stat="median"`)
 
 ---
 

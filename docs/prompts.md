@@ -53,6 +53,16 @@ Milestone M3 (v0.1): RAW-domain DPC + LSC.
 - Tests: (1) inject defects then verify DPC fixes exactly those pixels (and n_fixed==N), (2) verify LSC gain never exceeds gain_cap and is radially symmetric.
 - Deliverables: end with (1) one command to install dev/test deps, (2) one command to run pytest -q, and (3) one command to run the pipeline (classic mode).
 
+### Patch prompt 1 — CFA-aware DPC (same-CFA neighbors only)
+Patch M3 DPC: DPC runs on a Bayer mosaic, so any replacement value must be computed from **same-CFA sites only** (no cross-color borrowing). Make this invariant the default (no legacy mode).
+
+- Change dpc to compute the replacement as the median of the 8 same-plane neighbors at ±2 offsets: (±2,0), (0,±2), (±2,±2). For borders: ignore out-of-bounds neighbors (median of the available same-plane neighbors only; no edge clamping to other CFA planes).
+- Keep the existing config interface unchanged.
+- Record in debug.json: `metrics.neighbor_policy="same_cfa_only"`, `metrics.neighbor_stat="median"`, and the threshold used.
+- Tests:
+  - On a synthetic mosaic with different constant values per CFA plane (R/G1/G2/B), DPC must make zero changes (n_fixed==0) across RGGB/BGGR/GRBG/GBRG.
+  - Inject a single defect at each CFA site (R/G1/G2/B) and assert DPC fixes exactly that pixel using same-plane neighbors only, across RGGB/BGGR/GRBG/GBRG.
+
 ---
 
 ## v0.1-M4 — WB + demosaic
