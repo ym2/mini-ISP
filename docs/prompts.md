@@ -142,6 +142,67 @@ Tests:
 
 Deliverables: end with commands to (1) install dev/test deps, (2) run pytest -q, and (3) run the pipeline (classic mode).
 
+### Patch prompt 1 — CCM chain mode (opt-in, no stage split)
+Add a new CCM mode that makes the camera/working-space transform explicit, while keeping the stage name `ccm` and pipeline stage order unchanged.
+
+Implementation:
+- Add `stages.ccm.mode: chain`.
+- `chain` uses two 3×3 matrices (float32), sourced from config keys:
+  1) `cam_to_xyz_matrix` (camera RGB → XYZ D65). Internally refer to this as `M_cam_to_xyz`.
+  2) `xyz_to_working_matrix` (XYZ D65 → working linear RGB). Internally refer to this as `M_xyz_to_working`.
+     If `xyz_to_working_matrix` is not provided, default to a built-in constant matrix for XYZ(D65) → linear sRGB (D65).
+- Multiply convention (record verbatim): pixels are row vectors; apply a single 3×3 as `out = in @ M.T`.
+- With that convention, the sequential chain is:
+  - `xyz = in @ M_cam_to_xyz.T`
+  - `out = xyz @ M_xyz_to_working.T`
+- Compute and record:
+  - `effective_matrix = M_xyz_to_working @ M_cam_to_xyz`
+- Apply `effective_matrix` using the existing CCM multiply path so the output matches the sequential chain above:
+  - `out = in @ effective_matrix.T`
+- Keep existing CCM options (e.g., `clip`) working unchanged for `mode=chain`.
+
+Config + fallback policy:
+- `stages.ccm.cam_to_xyz_matrix` (3×3 list) is required for `mode=chain`.
+- `stages.ccm.xyz_to_working_matrix` (3×3 list) is optional; when missing, use the built-in XYZ(D65) → linear sRGB matrix.
+- If `cam_to_xyz_matrix` is missing in `mode=chain`: fall back to the identity matrix for `cam_to_xyz_matrix` (I3) and set `cam_to_xyz_source="identity_fallback"` (do not guess).
+- Still record all matrices/debug fields deterministically in this fallback case (including `xyz_to_working_matrix` and `effective_matrix`).
+- Do not change run layout, `manifest.json` schema, or viewer paths/assets in this patch.
+
+Debug contract (stage debug.json at stage root):
+- Under `params` record:
+  - `mode: "chain"`
+  - `working_space: "lin_srgb_d65"` (fixed for now)
+  - `mul_convention: "out = in @ M.T"`
+  - `cam_to_xyz_source: "config"|"identity_fallback"`
+  - `xyz_to_working_source: "constant_xyz_to_lin_srgb_d65"|"config"`
+  - `cam_to_xyz_matrix` (3×3 list)
+  - `xyz_to_working_matrix` (3×3 list)
+  - `effective_matrix` (3×3 list)
+- For backward compatibility, always populate:
+  - `meta.ccm_mode = "chain"`
+  - `meta.ccm = effective_matrix` (3×3 list)
+  - This must still hold when `cam_to_xyz_source="identity_fallback"`.
+
+Tests (pytest):
+- Equivalence (math + convention): for fixed `cam_to_xyz_matrix` and `xyz_to_working_matrix`, compute `effective_matrix = xyz_to_working_matrix @ cam_to_xyz_matrix` in the test and assert:
+  - `stage_ccm(mode=chain)` output ≈ `stage_ccm(mode=manual, matrix=effective_matrix)` output (within epsilon).
+- Identity: if both matrices are identity, output must be unchanged.
+- Ensure dtype/shape preserved; all output values finite.
+- Fallback: in `mode=chain` with missing `cam_to_xyz_matrix`, assert `cam_to_xyz_source="identity_fallback"` and that `meta.ccm_mode="chain"` / `meta.ccm` are still populated deterministically.
+
+Deliverables:
+- One command to run tests: `pytest -q`
+- One example config snippet:
+```yaml
+stages:
+  ccm:
+    mode: chain
+    cam_to_xyz_matrix:
+      - [0.70, 0.20, 0.10]
+      - [0.10, 0.90, 0.00]
+      - [0.00, 0.10, 0.90]
+```
+
 ---
 
 ## v0.1-M7 — Tone + color adjust + sharpen + OETF

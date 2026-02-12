@@ -83,6 +83,27 @@ LSC toggle (optional):
 python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_no_lsc --set stages.lsc.enabled=false
 ```
 
+CCM chain mode (optional; requires YAML config for 3×3 matrices):
+
+`--set KEY=VALUE` overrides are scalar-only, so use a YAML config to pass 3×3 matrices.
+
+Example config (`ccm_chain.yaml`):
+```yaml
+stages:
+  ccm:
+    mode: chain
+    cam_to_xyz_matrix:
+      - [0.70, 0.20, 0.10]
+      - [0.10, 0.90, 0.00]
+      - [0.00, 0.10, 0.90]
+    # xyz_to_working_matrix: optional (defaults to built-in XYZ(D65) -> linear sRGB (D65))
+```
+
+Run:
+```bash
+python -m mini_isp.run --config ccm_chain.yaml --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_ccm_chain
+```
+
 Open:
 ```
 http://localhost:8000/runs/raw_demo/viewer/index.html?manifest=/runs/raw_demo/manifest.json

@@ -415,13 +415,49 @@ def _apply_ccm(image: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return out.reshape(h, w, 3).astype(np.float32)
 
 
+_XYZ_TO_LIN_SRGB_D65 = np.array(
+    [
+        [3.2404542, -1.5371385, -0.4985314],
+        [-0.9692660, 1.8760108, 0.0415560],
+        [0.0556434, -0.2040259, 1.0572252],
+    ],
+    dtype=np.float32,
+)
+
+
 def stage_ccm(frame: Frame, params: Dict[str, Any]) -> StageResult:
     image = frame.image.astype(np.float32)
     if image.ndim != 3 or image.shape[2] != 3:
         return StageResult(frame=_copy_frame(frame), metrics={"warning": "ccm expects RGB image"})
 
     mode = str(params.get("mode", "identity")).lower()
-    if mode == "identity":
+    if mode == "chain":
+        working_space = "lin_srgb_d65"
+        mul_convention = "out = in @ M.T"
+
+        cam_to_xyz = params.get("cam_to_xyz_matrix")
+        if cam_to_xyz is None:
+            m_cam_to_xyz = np.eye(3, dtype=np.float32)
+            cam_to_xyz_source = "identity_fallback"
+        else:
+            m_cam_to_xyz = np.array(cam_to_xyz, dtype=np.float32)
+            if m_cam_to_xyz.shape != (3, 3):
+                raise ValueError("ccm chain mode requires cam_to_xyz_matrix as a 3x3 matrix")
+            cam_to_xyz_source = "config"
+
+        xyz_to_working = params.get("xyz_to_working_matrix")
+        if xyz_to_working is None:
+            m_xyz_to_working = np.array(_XYZ_TO_LIN_SRGB_D65, copy=True)
+            xyz_to_working_source = "constant_xyz_to_lin_srgb_d65"
+        else:
+            m_xyz_to_working = np.array(xyz_to_working, dtype=np.float32)
+            if m_xyz_to_working.shape != (3, 3):
+                raise ValueError("ccm chain mode requires xyz_to_working_matrix as a 3x3 matrix")
+            xyz_to_working_source = "config"
+
+        effective_matrix = (m_xyz_to_working @ m_cam_to_xyz).astype(np.float32)
+        matrix = effective_matrix
+    elif mode == "identity":
         matrix = np.eye(3, dtype=np.float32)
     elif mode == "manual":
         matrix = np.array(params.get("matrix", np.eye(3)), dtype=np.float32)
@@ -444,6 +480,21 @@ def stage_ccm(frame: Frame, params: Dict[str, Any]) -> StageResult:
         clip_applied = True
         clip_range = [lo, hi]
 
+    if mode == "chain":
+        resolved_params = {
+            "mode": "chain",
+            "working_space": working_space,
+            "mul_convention": mul_convention,
+            "cam_to_xyz_source": cam_to_xyz_source,
+            "xyz_to_working_source": xyz_to_working_source,
+            "cam_to_xyz_matrix": m_cam_to_xyz.tolist(),
+            "xyz_to_working_matrix": m_xyz_to_working.tolist(),
+            "effective_matrix": effective_matrix.tolist(),
+            "clip": clip,
+        }
+    else:
+        resolved_params = {"mode": mode, "matrix": matrix.tolist(), "clip": clip}
+
     metrics = {
         "clip_applied": clip_applied,
         "clip_range": clip_range,
@@ -451,14 +502,18 @@ def stage_ccm(frame: Frame, params: Dict[str, Any]) -> StageResult:
         "max": float(np.max(out)),
         "p01": float(np.percentile(out, 1.0)),
         "p99": float(np.percentile(out, 99.0)),
-        "resolved_params": {"mode": mode, "matrix": matrix.tolist(), "clip": clip},
+        "resolved_params": resolved_params,
     }
     if mode == "profile":
         metrics["warnings"] = ["profile mode not implemented; used identity"]
 
     meta = dict(frame.meta)
-    meta["ccm"] = matrix.tolist()
-    meta["ccm_mode"] = mode
+    if mode == "chain":
+        meta["ccm"] = effective_matrix.tolist()
+        meta["ccm_mode"] = "chain"
+    else:
+        meta["ccm"] = matrix.tolist()
+        meta["ccm_mode"] = mode
     return StageResult(frame=Frame(image=out, meta=meta), metrics=metrics)
 
 

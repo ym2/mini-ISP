@@ -58,7 +58,7 @@ Stages may add keys, but must not delete required keys.
 
 ### 2.3 Color transform metadata
 - `meta.ccm`: 3×3 matrix used (even if identity)
-- `meta.ccm_mode`: `identity|manual|profile`
+- `meta.ccm_mode`: `identity|manual|profile|chain`
 
 ### 2.4 Stats metadata
 - `meta.stats_3a`: dict with fields produced by `stats_3a` (see stage section)
@@ -173,11 +173,12 @@ Artifacts:
 Responsibilities:
 - apply 3×3 CCM in linear RGB
 - treat CCM as camera-RGB → working/render-RGB transform (still linear RGB; not necessarily XYZ)
-- support identity mode
+- support identity/manual/profile modes
+- support `chain` mode (camera RGB → XYZ D65 → working linear RGB via an effective 3×3)
 - record `meta.ccm` and `meta.ccm_mode`
 
 Artifacts:
-- debug: matrix + mode
+- debug: mode + matrix (for `chain`: component matrices + effective matrix)
 
 ---
 
