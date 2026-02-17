@@ -444,6 +444,9 @@ def stage_ccm(frame: Frame, params: Dict[str, Any]) -> StageResult:
             if m_cam_to_xyz.shape != (3, 3):
                 raise ValueError("ccm chain mode requires cam_to_xyz_matrix as a 3x3 matrix")
             cam_to_xyz_source = "config"
+            source_override = params.get("cam_to_xyz_source")
+            if isinstance(source_override, str) and source_override.strip():
+                cam_to_xyz_source = source_override.strip()
 
         xyz_to_working = params.get("xyz_to_working_matrix")
         if xyz_to_working is None:
@@ -454,6 +457,9 @@ def stage_ccm(frame: Frame, params: Dict[str, Any]) -> StageResult:
             if m_xyz_to_working.shape != (3, 3):
                 raise ValueError("ccm chain mode requires xyz_to_working_matrix as a 3x3 matrix")
             xyz_to_working_source = "config"
+            xyz_source_override = params.get("xyz_to_working_source")
+            if isinstance(xyz_source_override, str) and xyz_source_override.strip():
+                xyz_to_working_source = xyz_source_override.strip()
 
         effective_matrix = (m_xyz_to_working @ m_cam_to_xyz).astype(np.float32)
         matrix = effective_matrix

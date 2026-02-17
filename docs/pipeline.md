@@ -10,13 +10,13 @@ This doc defines:
 ## Canonical stage names
 
 ### Separate stages
-- `raw_norm` — RAW ingest + normalization (black level / white level), optional clamp
+- `raw_norm` — RAW ingest + normalization (black level / white level), optional clamp; expects Bayer-mosaic RAW input
 - `dpc` — defect pixel correction (RAW-domain)
 - `lsc` — lens shading correction (RAW-domain gain)
 - `wb_gains` — apply white-balance gains (still RAW-domain)
 - `demosaic` — Bayer → RGB (bilinear; optional malvar stub)
 - `denoise` — RGB denoise baseline (gaussian/box; chroma_gaussian available), upgrade path to more advanced methods
-- `ccm` — 3×3 color correction matrix in linear RGB (identity or provided)
+- `ccm` — 3×3 color correction matrix in linear RGB (identity, provided, or resolver-injected chain config)
 - `stats_3a` — compute AE/AWB/AF-style stats (**non-invasive**, does not change pixels)
 - `tone` — tone mapping / dynamic range compression (Reinhard/filmic now; **AI-DRC** can be added later as another method)
 - `color_adjust` — post-tone color adjustment (sat/hue/roll-off or LUT-like; identity by default)
@@ -86,6 +86,16 @@ Recommended behavior:
 - Compute `skin_mask` once after RGB exists (e.g., after `ccm`).
 - Use it initially in **one stage only** (recommended: `color_adjust` or `drc_plus_color`).
 - Default config keeps it **off**, and even when enabled uses gentle deltas.
+
+## RAW input constraint
+- The RAW pipeline path targets Bayer mosaics (2D sensor mosaic data).
+- RGB/non-mosaic DNG payloads are not supported in this path and are rejected at input load.
+
+## CCM resolver policy (current)
+- Stage list/order is unchanged; CCM policy is resolved in runner config before the `ccm` stage executes.
+- Explicit `stages.ccm.*` keys win over auto-default policy.
+- For DNG inputs, runner may auto-inject `ccm.mode=chain` from DNG metadata-derived matrices.
+- If DNG metadata matrices are unavailable/invalid, runner falls back to identity behavior with recorded reason in stage debug params.
 
 ## What’s missing vs a “full ISP”
 mini-ISP includes a realistic single-frame skeleton, but does not yet include:

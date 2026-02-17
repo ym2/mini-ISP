@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple, Optional
 
@@ -170,6 +171,278 @@ def _select_raw_wb(raw: Any, cfa_pattern: str, color_desc: str) -> Tuple[Tuple[f
     return (1.0, 1.0, 1.0), "unity"
 
 
+_D50_WHITE_XYZ = np.array([0.96422, 1.0, 0.82521], dtype=np.float32)
+_XYZ_TO_LIN_SRGB_D65 = np.array(
+    [
+        [3.2404542, -1.5371385, -0.4985314],
+        [-0.9692660, 1.8760108, 0.0415560],
+        [0.0556434, -0.2040259, 1.0572252],
+    ],
+    dtype=np.float32,
+)
+
+
+def _read_exiftool_metadata(path: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    cmd = ["exiftool", "-j", "-n", "-s", "-u", "-a", path]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return None, "exiftool_not_found"
+    except Exception:
+        return None, "exiftool_exec_error"
+
+    if proc.returncode != 0:
+        return None, "exiftool_failed"
+    try:
+        parsed = json.loads(proc.stdout)
+    except Exception:
+        return None, "exiftool_invalid_json"
+    if not isinstance(parsed, list) or not parsed or not isinstance(parsed[0], dict):
+        return None, "exiftool_empty_metadata"
+    return parsed[0], "ok"
+
+
+def _exiftool_get(meta: Dict[str, Any], tag: str) -> Optional[Any]:
+    if tag in meta:
+        return meta[tag]
+    suffix = f":{tag}"
+    for key, value in meta.items():
+        if key.endswith(suffix):
+            return value
+    return None
+
+
+def _parse_exiftool_mat3(meta: Dict[str, Any], tag: str) -> Optional[np.ndarray]:
+    value = _exiftool_get(meta, tag)
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        parts = [float(x) for x in value]
+    else:
+        parts = [float(x) for x in str(value).split()]
+    if len(parts) != 9:
+        return None
+    mat = np.asarray(parts, dtype=np.float32).reshape(3, 3)
+    if not np.all(np.isfinite(mat)):
+        return None
+    return mat
+
+
+def _parse_exiftool_vec3(meta: Dict[str, Any], tag: str) -> Optional[np.ndarray]:
+    value = _exiftool_get(meta, tag)
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        parts = [float(x) for x in value]
+    else:
+        parts = [float(x) for x in str(value).split()]
+    if len(parts) != 3:
+        return None
+    vec = np.asarray(parts, dtype=np.float32)
+    if not np.all(np.isfinite(vec)):
+        return None
+    return vec
+
+
+def _illuminant_code_to_cct(code: Any) -> Optional[float]:
+    if code is None:
+        return None
+    try:
+        c = int(code)
+    except Exception:
+        return None
+    table = {
+        1: 5500.0,
+        2: 4200.0,
+        3: 2850.0,
+        4: 5500.0,
+        9: 5500.0,
+        10: 6500.0,
+        11: 7500.0,
+        12: 6400.0,
+        13: 5000.0,
+        14: 4000.0,
+        15: 3200.0,
+        17: 2856.0,
+        18: 4874.0,
+        19: 6774.0,
+        20: 5503.0,
+        21: 6504.0,
+        22: 7504.0,
+        23: 5003.0,
+        24: 3200.0,
+    }
+    return table.get(c)
+
+
+def _cct_from_xyz_mccamy(xyz: np.ndarray) -> Optional[float]:
+    v = np.asarray(xyz, dtype=np.float64).reshape(3)
+    if not np.all(np.isfinite(v)):
+        return None
+    s = float(np.sum(v))
+    if s <= 1e-12:
+        return None
+    x = float(v[0] / s)
+    y = float(v[1] / s)
+    denom = 0.1858 - y
+    if abs(denom) < 1e-12:
+        return None
+    n = (x - 0.3320) / denom
+    cct = -449.0 * (n**3) + 3525.0 * (n**2) - 6823.3 * n + 5520.33
+    if not np.isfinite(cct) or cct <= 0.0:
+        return None
+    return float(cct)
+
+
+def _metadata_interp_weight(
+    *,
+    as_shot_neutral: Optional[np.ndarray],
+    color_matrix_1: Optional[np.ndarray],
+    color_matrix_2: Optional[np.ndarray],
+    calibration_illuminant_1: Any,
+    calibration_illuminant_2: Any,
+) -> Tuple[float, str]:
+    t1 = _illuminant_code_to_cct(calibration_illuminant_1)
+    t2 = _illuminant_code_to_cct(calibration_illuminant_2)
+    if as_shot_neutral is None or color_matrix_1 is None or color_matrix_2 is None:
+        return 0.5, "fallback_0p5"
+    if t1 is None or t2 is None:
+        return 0.5, "fallback_0p5"
+    try:
+        cm_mid = 0.5 * np.asarray(color_matrix_1, dtype=np.float64) + 0.5 * np.asarray(color_matrix_2, dtype=np.float64)
+        inv_mid = np.linalg.inv(cm_mid)
+        xyz_scene = inv_mid @ np.asarray(as_shot_neutral, dtype=np.float64).reshape(3)
+    except Exception:
+        return 0.5, "fallback_0p5"
+    cct_scene = _cct_from_xyz_mccamy(xyz_scene)
+    if cct_scene is None:
+        return 0.5, "fallback_0p5"
+    denom = (1.0 / t1) - (1.0 / t2)
+    if abs(denom) < 1e-12:
+        return 0.5, "fallback_0p5"
+    w_raw = ((1.0 / cct_scene) - (1.0 / t2)) / denom
+    return float(np.clip(w_raw, 0.0, 1.0)), "metadata_cct"
+
+
+def _interp_mat3(m1: Optional[np.ndarray], m2: Optional[np.ndarray], w: float) -> Optional[np.ndarray]:
+    if m1 is None and m2 is None:
+        return None
+    if m1 is None:
+        return m2
+    if m2 is None:
+        return m1
+    return (w * m1 + (1.0 - w) * m2).astype(np.float32)
+
+
+def _synthesize_native_fm(
+    analog_balance: Optional[np.ndarray],
+    camera_calibration: Optional[np.ndarray],
+    color_matrix: np.ndarray,
+) -> np.ndarray:
+    cm = np.asarray(color_matrix, dtype=np.float64)
+    if camera_calibration is not None:
+        cc = np.asarray(camera_calibration, dtype=np.float64)
+    else:
+        cc = np.eye(3, dtype=np.float64)
+    if analog_balance is not None:
+        ab = np.diag(np.asarray(analog_balance, dtype=np.float64))
+    else:
+        ab = np.eye(3, dtype=np.float64)
+    m_native = ab @ cc @ cm
+    cam_neutral = m_native @ _D50_WHITE_XYZ
+    fm = np.linalg.inv(m_native) @ np.diag(cam_neutral)
+    return fm.astype(np.float32)
+
+
+def _xyz_whitepoint_d65() -> np.ndarray:
+    return np.array([0.95047, 1.0, 1.08883], dtype=np.float32)
+
+
+def _bradford_adaptation_matrix(src_white_xyz: np.ndarray, dst_white_xyz: np.ndarray) -> np.ndarray:
+    src = np.asarray(src_white_xyz, dtype=np.float64).reshape(3)
+    dst = np.asarray(dst_white_xyz, dtype=np.float64).reshape(3)
+    b = np.array(
+        [
+            [0.8951, 0.2664, -0.1614],
+            [-0.7502, 1.7135, 0.0367],
+            [0.0389, -0.0685, 1.0296],
+        ],
+        dtype=np.float64,
+    )
+    b_inv = np.linalg.inv(b)
+    src_lms = b @ src
+    dst_lms = b @ dst
+    scale = np.diag(dst_lms / np.maximum(src_lms, 1e-12))
+    m = b_inv @ scale @ b
+    return m.astype(np.float32)
+
+
+def _xyz_d50_to_lin_srgb_d65() -> np.ndarray:
+    m_xyz_d65_by_d50 = _bradford_adaptation_matrix(_D50_WHITE_XYZ, _xyz_whitepoint_d65())
+    return (_XYZ_TO_LIN_SRGB_D65 @ m_xyz_d65_by_d50).astype(np.float32)
+
+
+def derive_dng_ccm_from_exif_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+    color_matrix_1 = _parse_exiftool_mat3(meta, "ColorMatrix1")
+    color_matrix_2 = _parse_exiftool_mat3(meta, "ColorMatrix2")
+    forward_matrix_1 = _parse_exiftool_mat3(meta, "ForwardMatrix1")
+    forward_matrix_2 = _parse_exiftool_mat3(meta, "ForwardMatrix2")
+    camera_calibration_1 = _parse_exiftool_mat3(meta, "CameraCalibration1")
+    camera_calibration_2 = _parse_exiftool_mat3(meta, "CameraCalibration2")
+    as_shot_neutral = _parse_exiftool_vec3(meta, "AsShotNeutral")
+    analog_balance = _parse_exiftool_vec3(meta, "AnalogBalance")
+    cal_ill_1 = _exiftool_get(meta, "CalibrationIlluminant1")
+    cal_ill_2 = _exiftool_get(meta, "CalibrationIlluminant2")
+
+    weight, weight_source = _metadata_interp_weight(
+        as_shot_neutral=as_shot_neutral,
+        color_matrix_1=color_matrix_1,
+        color_matrix_2=color_matrix_2,
+        calibration_illuminant_1=cal_ill_1,
+        calibration_illuminant_2=cal_ill_2,
+    )
+
+    matrix_xyz_by_cam: Optional[np.ndarray] = None
+    cam_source = "none"
+    if forward_matrix_1 is not None or forward_matrix_2 is not None:
+        matrix_xyz_by_cam = _interp_mat3(forward_matrix_1, forward_matrix_2, weight)
+        cam_source = "dng_tags_forward_matrix"
+    elif color_matrix_1 is not None or color_matrix_2 is not None:
+        try:
+            fm_1 = _synthesize_native_fm(analog_balance, camera_calibration_1, color_matrix_1) if color_matrix_1 is not None else None
+            fm_2 = _synthesize_native_fm(analog_balance, camera_calibration_2, color_matrix_2) if color_matrix_2 is not None else None
+            matrix_xyz_by_cam = _interp_mat3(fm_1, fm_2, weight)
+            cam_source = "dng_tags_synthesized_native_chain_fm"
+        except np.linalg.LinAlgError:
+            return {"available": False, "reason": "dng_native_chain_inversion_failed"}
+    else:
+        return {"available": False, "reason": "no_usable_dng_matrices"}
+
+    if matrix_xyz_by_cam is None:
+        return {"available": False, "reason": "missing_interpolated_matrix"}
+    if not np.all(np.isfinite(matrix_xyz_by_cam)) or float(np.linalg.norm(matrix_xyz_by_cam)) < 1e-8:
+        return {"available": False, "reason": "invalid_dng_matrix"}
+
+    xyz_to_working = _xyz_d50_to_lin_srgb_d65()
+    return {
+        "available": True,
+        "cam_to_xyz_matrix": matrix_xyz_by_cam.astype(np.float32).tolist(),
+        "cam_to_xyz_source": cam_source,
+        "cam_to_xyz_space": "xyz_d50",
+        "xyz_to_working_matrix": xyz_to_working.tolist(),
+        "xyz_to_working_source": "constant_xyz_d50_to_lin_srgb_d65",
+        "interp_weight_matrix1": float(weight),
+        "interp_weight_source": weight_source,
+    }
+
+
+def derive_dng_ccm_from_file(path: str) -> Dict[str, Any]:
+    meta, status = _read_exiftool_metadata(path)
+    if meta is None:
+        return {"available": False, "reason": status}
+    return derive_dng_ccm_from_exif_metadata(meta)
+
+
 def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str, Any]]:
     try:
         import rawpy  # type: ignore
@@ -181,6 +454,12 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
         if mosaic is None:
             mosaic = raw.raw_image
         mosaic = np.asarray(mosaic)
+        if mosaic.ndim != 2:
+            raise ValueError(
+                "RAW input is not a 2D Bayer mosaic "
+                f"(got shape {tuple(int(x) for x in mosaic.shape)}). "
+                "This file is likely a non-Bayer/RGB DNG and is unsupported by the RAW mosaic pipeline."
+            )
 
         white_level = getattr(raw, "white_level", None)
         black_level = None
@@ -211,6 +490,10 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
         )
         wb_gains, wb_source = _select_raw_wb(raw, cfa_pattern, color_desc)
 
+    ccm_info: Dict[str, Any] = {"available": False, "reason": "non_dng_input"}
+    if os.path.splitext(path)[1].lower() == ".dng":
+        ccm_info = derive_dng_ccm_from_file(path)
+
     meta = {
         "cfa_pattern": cfa_pattern,
         "black_level": float(black_level) if black_level is not None else 0.0,
@@ -218,7 +501,16 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
         "bit_depth": bit_depth,
         "wb_gains": [float(x) for x in wb_gains],
         "wb_source": wb_source,
+        "cam_to_xyz_source": "none",
+        "xyz_to_working_source": "none",
+        "ccm_auto_reason": ccm_info.get("reason"),
     }
+    if ccm_info.get("available"):
+        meta["cam_to_xyz_matrix"] = ccm_info["cam_to_xyz_matrix"]
+        meta["cam_to_xyz_source"] = ccm_info.get("cam_to_xyz_source", "none")
+        meta["xyz_to_working_matrix"] = ccm_info["xyz_to_working_matrix"]
+        meta["xyz_to_working_source"] = ccm_info.get("xyz_to_working_source", "none")
+        meta["ccm_auto_reason"] = "dng_tags_available"
     return mosaic, meta
 
 

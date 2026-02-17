@@ -91,3 +91,72 @@ def test_pipeline_with_bggr_cfa(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     run_root = run_pipeline(config)
     manifest_path = Path(run_root) / "manifest.json"
     assert manifest_path.exists()
+
+
+def test_load_raw_mosaic_dng_adds_ccm_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    rawpy = pytest.importorskip("rawpy")
+
+    class DummyRaw:
+        def __init__(self) -> None:
+            self.raw_image_visible = np.array([[100, 200], [300, 400]], dtype=np.uint16)
+            self.raw_image = self.raw_image_visible
+            self.white_level = 4095
+            self.black_level_per_channel = [64, 64, 64, 64]
+            self.raw_pattern = np.array([[0, 1], [1, 2]], dtype=np.uint8)
+            self.color_desc = b"RGBG"
+
+        def __enter__(self) -> "DummyRaw":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def fake_imread(path: str) -> DummyRaw:
+        return DummyRaw()
+
+    monkeypatch.setattr(rawpy, "imread", fake_imread)
+    monkeypatch.setattr(
+        "mini_isp.io_utils.derive_dng_ccm_from_file",
+        lambda _path: {
+            "available": True,
+            "cam_to_xyz_matrix": np.eye(3, dtype=np.float32).tolist(),
+            "cam_to_xyz_source": "dng_tags_forward_matrix",
+            "xyz_to_working_matrix": np.eye(3, dtype=np.float32).tolist(),
+            "xyz_to_working_source": "constant_xyz_d50_to_lin_srgb_d65",
+        },
+    )
+
+    _mosaic, meta = load_raw_mosaic("fake.dng", "RGGB")
+    assert meta["cam_to_xyz_source"] == "dng_tags_forward_matrix"
+    assert meta["xyz_to_working_source"] == "constant_xyz_d50_to_lin_srgb_d65"
+    assert np.array(meta["cam_to_xyz_matrix"], dtype=np.float32).shape == (3, 3)
+    assert np.array(meta["xyz_to_working_matrix"], dtype=np.float32).shape == (3, 3)
+    assert meta["ccm_auto_reason"] == "dng_tags_available"
+
+
+def test_load_raw_mosaic_rejects_non_bayer_dng(monkeypatch: pytest.MonkeyPatch) -> None:
+    rawpy = pytest.importorskip("rawpy")
+
+    class DummyRaw:
+        def __init__(self) -> None:
+            # Simulate an RGB DNG payload (H, W, C) that is not a Bayer mosaic.
+            self.raw_image_visible = np.zeros((8, 12, 4), dtype=np.uint16)
+            self.raw_image = self.raw_image_visible
+            self.white_level = 4095
+            self.black_level_per_channel = [64, 64, 64, 64]
+            self.raw_pattern = np.array([[0, 1], [1, 2]], dtype=np.uint8)
+            self.color_desc = b"RGBG"
+
+        def __enter__(self) -> "DummyRaw":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def fake_imread(path: str) -> DummyRaw:
+        return DummyRaw()
+
+    monkeypatch.setattr(rawpy, "imread", fake_imread)
+
+    with pytest.raises(ValueError, match="not a 2D Bayer mosaic"):
+        load_raw_mosaic("fake_rgb.dng", "RGGB")

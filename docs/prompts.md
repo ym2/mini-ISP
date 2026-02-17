@@ -925,6 +925,85 @@ python -m mini_isp.tools.scene_pack \
 
 ---
 
+## v0.2-M8 — DNG-aware CCM auto-default (resolver + deterministic DNG source)
+Implementation note: Patch 1 and Patch 2 were implemented together in one commit.
+
+### Patch prompt 1 — CCM resolver policy scaffold (no DNG math port yet)
+Add runner-side CCM auto-default policy wiring, without changing stage list or adding new pipeline modes.
+
+Scope
+	•	Keep stage name `ccm` and stage order unchanged.
+	•	No run-layout / manifest / viewer schema changes.
+	•	Treat this as resolver policy (runner), not a new stage mode.
+
+Policy / precedence
+	•	Define explicit CCM config as presence of any key under resolved `stages.ccm`:
+	•	`mode`, `matrix`, `cam_to_xyz_matrix`, `xyz_to_working_matrix`
+	•	If explicit, never auto-override.
+	•	When not explicit:
+	•	For DNG input only, if metadata provides both `cam_to_xyz_matrix` and `xyz_to_working_matrix`, auto-set `ccm.mode=chain` with those matrices.
+	•	For non-DNG RAW, do not auto-inject CCM from metadata in this patch.
+	•	Otherwise keep identity behavior (no matrix guessing).
+
+Debug / provenance
+	•	In `stages/<nn>_ccm/debug.json` under `params`, include:
+	•	`auto_default_applied: true|false`
+	•	`auto_default_reason` (e.g., `explicit_stage_config|applied_from_dng_tags|missing_dng_ccm|non_dng_raw|non_raw_input`)
+	•	`cam_to_xyz_source` and `xyz_to_working_source` when available
+	•	Keep existing chain debug fields and `meta.ccm` / `meta.ccm_mode`.
+
+Tests
+	•	Resolver unit tests:
+	•	explicit keys win over auto-default
+	•	DNG + available matrices auto-selects chain
+	•	non-DNG RAW does not auto-select chain
+	•	missing metadata matrices falls back to identity behavior with reason
+
+### Patch prompt 2 — Deterministic DNG tags + D50 adaptation source
+Add DNG metadata extraction that feeds Patch-1 resolver with deterministic matrices.
+
+Scope
+	•	DNG only (`.dng`) in this patch.
+	•	No `_refcheck` references in mini-ISP docs/code.
+	•	No stage split; continue using `ccm.mode=chain`.
+
+DNG metadata matrix source
+	•	Read DNG tags (via exif metadata extraction) for:
+	•	`ForwardMatrix1/2`
+	•	`ColorMatrix1/2`
+	•	`CameraCalibration1/2` (optional)
+	•	`AnalogBalance` (optional)
+	•	`AsShotNeutral` + `CalibrationIlluminant1/2` (for interpolation weight)
+	•	Selection order:
+	•	Prefer interpolated `ForwardMatrix` when available.
+	•	Else synthesize deterministic fallback from native chain (`AnalogBalance * CameraCalibration * ColorMatrix`) and derive forward matrix per DNG-spec default-FM rule.
+	•	Reject non-finite / near-zero matrices; on failure return unavailable with reason.
+
+D50 adaptation / chain wiring
+	•	Treat DNG-derived `cam_to_xyz_matrix` as camera→XYZ(D50).
+	•	Set `xyz_to_working_matrix` to a built-in constant XYZ(D50)→linear sRGB(D65) (Bradford-adapted).
+	•	Resolver then applies `mode=chain` with:
+	•	`effective_matrix = xyz_to_working_matrix @ cam_to_xyz_matrix`
+	•	`out = in @ effective_matrix.T`
+
+Fallback policy
+	•	If DNG tag derivation is unavailable/invalid: do not auto-enable chain; remain identity with recorded reason.
+	•	Do not auto-fallback to `rawpy.rgb_xyz_matrix` in M8.
+
+Tests
+	•	Metadata-only unit tests for DNG matrix derivation:
+	•	ForwardMatrix interpolation path
+	•	ColorMatrix native-chain synthesized fallback path
+	•	invalid metadata handling (unavailable + reason)
+	•	Integration-ish resolver test that consumes DNG metadata fields and produces chain config.
+
+Deliverables
+	•	`pytest -q`
+	•	Example:
+python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classic --name v02_m8_dng_auto
+
+---
+
 ## v0.3-M1 — Diagnostics surfaced in viewer (non-breaking)
 
 ### Final prompt

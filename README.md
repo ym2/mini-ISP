@@ -63,6 +63,13 @@ http://localhost:8000/runs/png_demo/viewer/index.html?manifest=/runs/png_demo/ma
 python -m mini_isp.run   --input path/to/sample.dng   --out runs   --pipeline_mode classic   --name raw_demo
 ```
 Supported RAW extensions depend on rawpy/LibRaw (e.g., dng/nef/cr2/arw/rw2/orf/raf).
+Important: the RAW path expects a **2D Bayer mosaic**. DNG files that contain RGB/non-mosaic payloads are rejected with a clear error.
+
+Unsupported RAW types (current):
+- RGB/non-mosaic DNG payloads (for example some `Adobe DNG Converter ... rgb (3_2).DNG` files).
+- Current error:
+  `ValueError: RAW input is not a 2D Bayer mosaic (got shape ...). This file is likely a non-Bayer/RGB DNG and is unsupported by the RAW mosaic pipeline.`
+- Since validation fails before pipeline execution, no `runs/<name>/` folder is created for that attempt.
 
 White-balance overrides (optional):
 ```bash
@@ -83,7 +90,23 @@ LSC toggle (optional):
 python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_no_lsc --set stages.lsc.enabled=false
 ```
 
-CCM chain mode (optional; requires YAML config for 3×3 matrices):
+DNG CCM auto-default (DNG inputs only):
+```bash
+# If input is DNG and stages.ccm is not explicitly configured,
+# runner auto-tries a deterministic DNG-tag CCM path and applies chain mode.
+python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_auto_ccm
+
+# Force identity (explicit config always wins over auto-default).
+python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_ccm_identity --set stages.ccm.mode=identity
+```
+Behavior summary:
+- Explicit `stages.ccm.*` keys always win.
+- DNG auto-default uses metadata-derived chain matrices when available.
+- If DNG CCM metadata is unavailable/invalid, CCM remains identity with recorded reason in `stages/<nn>_ccm/debug.json`.
+- Non-DNG RAW does not auto-enable CCM in this patch.
+- RGB/non-Bayer DNG files are not supported by the RAW mosaic pipeline and fail before run-folder creation.
+
+CCM chain mode (optional manual config; requires YAML for 3×3 matrices):
 
 `--set KEY=VALUE` overrides are scalar-only, so use a YAML config to pass 3×3 matrices.
 

@@ -24,6 +24,7 @@ We keep the format set intentionally small. Use these canonical format names in 
 
 - `RAW_BAYER_F32`  
   H×W float32 mosaic, normalized nominally to [0, 1] after `raw_norm`
+  (non-mosaic/RGB DNG payloads are out of scope for this path)
 
 - `RGB_LINEAR_F32`  
   H×W×3 float32, linear light, nominally [0, 1] (values may exceed slightly before clipping)
@@ -90,6 +91,7 @@ Responsibilities:
 - clamp or soft-clip to a sane range (configurable)
 - populate `meta.black_level`, `meta.white_level` if known
 - ensure `meta.cfa_pattern` is set (required downstream)
+- validate RAW payload is a 2D Bayer mosaic; reject unsupported non-mosaic RAW/DNG inputs early
 
 Artifacts:
 - preview (simple debayer for visualization is ok, but do not change stored RAW)
@@ -174,11 +176,13 @@ Responsibilities:
 - apply 3×3 CCM in linear RGB
 - treat CCM as camera-RGB → working/render-RGB transform (still linear RGB; not necessarily XYZ)
 - support identity/manual/profile modes
-- support `chain` mode (camera RGB → XYZ D65 → working linear RGB via an effective 3×3)
+- support `chain` mode (camera RGB → XYZ via `cam_to_xyz_matrix`, then XYZ → working via `xyz_to_working_matrix`, collapsed to an effective 3×3)
+- default `xyz_to_working_matrix` is built-in XYZ(D65) → linear sRGB(D65); runner may inject other working transforms (for example D50-adapted paths)
 - record `meta.ccm` and `meta.ccm_mode`
 
 Artifacts:
-- debug: mode + matrix (for `chain`: component matrices + effective matrix)
+- debug: mode + matrix (for `chain`: component matrices + effective matrix + source/provenance)
+- when runner auto-default policy is active, debug params should include `auto_default_applied` and `auto_default_reason`
 
 ---
 

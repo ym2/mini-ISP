@@ -144,6 +144,10 @@ def is_raw_path(path: str) -> bool:
     return ext in {".dng", ".nef", ".cr2", ".arw", ".rw2", ".orf", ".raf", ".raw"}
 
 
+def is_dng_path(path: str) -> bool:
+    return os.path.splitext(path)[1].lower() == ".dng"
+
+
 def load_npy_mosaic(path: str) -> Frame:
     meta_path = os.path.join(os.path.dirname(path), "meta.json")
     if not os.path.exists(meta_path):
@@ -194,12 +198,18 @@ def load_input_frame(config: Dict[str, Any]) -> Frame:
         mosaic_norm = normalize_raw_mosaic(mosaic, float(black_level), float(white_level))
         meta = {
             "source_path": input_path,
+            "input_ext": os.path.splitext(input_path)[1].lower(),
             "bit_depth": raw_meta.get("bit_depth"),
             "black_level": float(black_level),
             "white_level": float(white_level),
             "cfa_pattern": raw_meta.get("cfa_pattern", config["input"].get("bayer_pattern", "RGGB")),
             "wb_gains": raw_meta.get("wb_gains"),
             "wb_source": raw_meta.get("wb_source"),
+            "cam_to_xyz_matrix": raw_meta.get("cam_to_xyz_matrix"),
+            "cam_to_xyz_source": raw_meta.get("cam_to_xyz_source"),
+            "xyz_to_working_matrix": raw_meta.get("xyz_to_working_matrix"),
+            "xyz_to_working_source": raw_meta.get("xyz_to_working_source"),
+            "ccm_auto_reason": raw_meta.get("ccm_auto_reason"),
             "raw_mosaic": True,
             "input_kind": "raw",
         }
@@ -272,6 +282,56 @@ def _resolve_wb_gains_stage_params(
     raise ValueError(f"Unknown wb_mode: {wb_mode}")
 
 
+def _resolve_ccm_stage_params(
+    stage_config: Dict[str, Any],
+    frame_meta: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Resolve CCM stage parameters, honoring precedence:
+    - Explicit CCM config (presence of behavior keys) always wins.
+    - Otherwise, apply DNG-only auto-default from metadata when available.
+    - Non-DNG RAW and non-RAW inputs keep default identity behavior.
+    """
+    out = dict(stage_config)
+    out.setdefault("auto_default_applied", False)
+
+    explicit_keys = {"mode", "matrix", "cam_to_xyz_matrix", "xyz_to_working_matrix"}
+    if any(key in out for key in explicit_keys):
+        out.setdefault("auto_default_reason", "explicit_stage_config")
+        return out
+
+    input_kind = str(frame_meta.get("input_kind", "png"))
+    if input_kind != "raw":
+        out.setdefault("auto_default_reason", "non_raw_input")
+        return out
+
+    input_ext = str(frame_meta.get("input_ext") or "").lower()
+    source_path = str(frame_meta.get("source_path") or "")
+    is_dng = input_ext == ".dng" or is_dng_path(source_path)
+    if not is_dng:
+        out.setdefault("auto_default_reason", "non_dng_raw")
+        return out
+
+    cam_to_xyz = frame_meta.get("cam_to_xyz_matrix")
+    xyz_to_working = frame_meta.get("xyz_to_working_matrix")
+    cam_source = str(frame_meta.get("cam_to_xyz_source") or "none")
+    xyz_source = str(frame_meta.get("xyz_to_working_source") or "none")
+    if cam_to_xyz is None or xyz_to_working is None:
+        out["cam_to_xyz_source"] = cam_source
+        out["xyz_to_working_source"] = xyz_source
+        out["auto_default_reason"] = str(frame_meta.get("ccm_auto_reason") or "missing_dng_ccm")
+        return out
+
+    out["mode"] = "chain"
+    out["cam_to_xyz_matrix"] = cam_to_xyz
+    out["xyz_to_working_matrix"] = xyz_to_working
+    out["cam_to_xyz_source"] = cam_source if cam_source != "none" else "dng_tags_unavailable"
+    out["xyz_to_working_source"] = xyz_source if xyz_source != "none" else "constant_xyz_d50_to_lin_srgb_d65"
+    out["auto_default_applied"] = True
+    out["auto_default_reason"] = "applied_from_dng_tags"
+    return out
+
+
 def run_pipeline(config: Dict[str, Any]) -> str:
     input_path = config["input"]["path"]
     frame = load_input_frame(config)
@@ -336,6 +396,8 @@ def run_pipeline(config: Dict[str, Any]) -> str:
                 cli_wb_mode=cli_wb_mode,
                 cli_wb_gains=cli_wb_gains,
             )
+        if stage.name == "ccm":
+            stage_config = _resolve_ccm_stage_params(stage_config=stage_config, frame_meta=frame.meta)
 
         if stage.name == "lsc" and stage_config.get("enabled") is False:
             result = StageResult(
