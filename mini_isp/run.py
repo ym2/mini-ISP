@@ -205,10 +205,19 @@ def load_input_frame(config: Dict[str, Any]) -> Frame:
             "cfa_pattern": raw_meta.get("cfa_pattern", config["input"].get("bayer_pattern", "RGGB")),
             "wb_gains": raw_meta.get("wb_gains"),
             "wb_source": raw_meta.get("wb_source"),
+            "daylight_wb_gains": raw_meta.get("daylight_wb_gains"),
             "cam_to_xyz_matrix": raw_meta.get("cam_to_xyz_matrix"),
             "cam_to_xyz_source": raw_meta.get("cam_to_xyz_source"),
             "xyz_to_working_matrix": raw_meta.get("xyz_to_working_matrix"),
             "xyz_to_working_source": raw_meta.get("xyz_to_working_source"),
+            "non_dng_cam_to_xyz_matrix": raw_meta.get("non_dng_cam_to_xyz_matrix"),
+            "non_dng_cam_to_xyz_source": raw_meta.get("non_dng_cam_to_xyz_source"),
+            "non_dng_selected_input_variant": raw_meta.get("non_dng_selected_input_variant"),
+            "non_dng_xyz_to_working_matrix_d65": raw_meta.get("non_dng_xyz_to_working_matrix_d65"),
+            "non_dng_xyz_to_working_source_d65": raw_meta.get("non_dng_xyz_to_working_source_d65"),
+            "non_dng_xyz_to_working_matrix_d50adapt": raw_meta.get("non_dng_xyz_to_working_matrix_d50adapt"),
+            "non_dng_xyz_to_working_source_d50adapt": raw_meta.get("non_dng_xyz_to_working_source_d50adapt"),
+            "non_dng_meta_reason": raw_meta.get("non_dng_meta_reason"),
             "ccm_auto_reason": raw_meta.get("ccm_auto_reason"),
             "raw_mosaic": True,
             "input_kind": "raw",
@@ -289,8 +298,10 @@ def _resolve_ccm_stage_params(
     """
     Resolve CCM stage parameters, honoring precedence:
     - Explicit CCM config (presence of behavior keys) always wins.
-    - Otherwise, apply DNG-only auto-default from metadata when available.
-    - Non-DNG RAW and non-RAW inputs keep default identity behavior.
+    - Otherwise, apply RAW auto-default policy from metadata when available:
+      - DNG RAW: v0.2-M8 DNG-tags policy.
+      - non-DNG RAW: v0.2-M9 non_dng_meta_default policy.
+    - Non-RAW inputs keep default identity behavior.
     """
     out = dict(stage_config)
     out.setdefault("auto_default_applied", False)
@@ -308,27 +319,94 @@ def _resolve_ccm_stage_params(
     input_ext = str(frame_meta.get("input_ext") or "").lower()
     source_path = str(frame_meta.get("source_path") or "")
     is_dng = input_ext == ".dng" or is_dng_path(source_path)
-    if not is_dng:
-        out.setdefault("auto_default_reason", "non_dng_raw")
+    if is_dng:
+        cam_to_xyz = frame_meta.get("cam_to_xyz_matrix")
+        xyz_to_working = frame_meta.get("xyz_to_working_matrix")
+        cam_source = str(frame_meta.get("cam_to_xyz_source") or "none")
+        xyz_source = str(frame_meta.get("xyz_to_working_source") or "none")
+        if cam_to_xyz is None or xyz_to_working is None:
+            out["cam_to_xyz_source"] = cam_source
+            out["xyz_to_working_source"] = xyz_source
+            out["auto_default_reason"] = str(frame_meta.get("ccm_auto_reason") or "missing_dng_ccm")
+            return out
+
+        out["mode"] = "chain"
+        out["cam_to_xyz_matrix"] = cam_to_xyz
+        out["xyz_to_working_matrix"] = xyz_to_working
+        out["cam_to_xyz_source"] = cam_source if cam_source != "none" else "dng_tags_unavailable"
+        out["xyz_to_working_source"] = xyz_source if xyz_source != "none" else "constant_xyz_d50_to_lin_srgb_d65"
+        out["auto_default_applied"] = True
+        out["auto_default_reason"] = "applied_from_dng_tags"
         return out
 
-    cam_to_xyz = frame_meta.get("cam_to_xyz_matrix")
-    xyz_to_working = frame_meta.get("xyz_to_working_matrix")
-    cam_source = str(frame_meta.get("cam_to_xyz_source") or "none")
-    xyz_source = str(frame_meta.get("xyz_to_working_source") or "none")
-    if cam_to_xyz is None or xyz_to_working is None:
-        out["cam_to_xyz_source"] = cam_source
-        out["xyz_to_working_source"] = xyz_source
-        out["auto_default_reason"] = str(frame_meta.get("ccm_auto_reason") or "missing_dng_ccm")
+    # non-DNG RAW policy: non_dng_meta_default
+    non_dng_cam_to_xyz = frame_meta.get("non_dng_cam_to_xyz_matrix")
+    if non_dng_cam_to_xyz is None:
+        out["cam_to_xyz_source"] = str(frame_meta.get("non_dng_cam_to_xyz_source") or "none")
+        out["auto_default_reason"] = str(frame_meta.get("non_dng_meta_reason") or "missing_non_dng_meta")
+        return out
+
+    m_base = np.asarray(non_dng_cam_to_xyz, dtype=np.float32)
+    if m_base.shape != (3, 3) or not np.all(np.isfinite(m_base)):
+        out["auto_default_reason"] = "invalid_non_dng_cam_to_xyz"
+        return out
+
+    input_variant = str(frame_meta.get("non_dng_selected_input_variant") or "as_is")
+
+    def _valid_wb_triplet(value: Any) -> np.ndarray | None:
+        if value is None:
+            return None
+        arr = np.asarray(value, dtype=np.float32).reshape(-1)
+        if arr.size < 3:
+            return None
+        arr = arr[:3]
+        if not np.all(np.isfinite(arr)) or np.any(arr <= 0.0):
+            return None
+        return arr
+
+    daylight_wb = _valid_wb_triplet(frame_meta.get("daylight_wb_gains"))
+    selected_wb = _valid_wb_triplet(frame_meta.get("wb_gains"))
+
+    chosen_input_variant = "selected_input"
+    chosen_wp_variant = "d50adapt"
+    wb_for_unwb = selected_wb
+
+    if daylight_wb is not None:
+        chosen_input_variant = "pre_unwb_daylight"
+        chosen_wp_variant = "d65"
+        wb_for_unwb = daylight_wb
+
+    m_cam_to_xyz = np.array(m_base, copy=True)
+    if input_variant == "pre_unwb":
+        if wb_for_unwb is None:
+            out["auto_default_reason"] = "missing_non_dng_wb_for_pre_unwb"
+            return out
+        m_cam_to_xyz = (m_cam_to_xyz @ np.diag(1.0 / wb_for_unwb)).astype(np.float32)
+
+    if chosen_wp_variant == "d65":
+        xyz_to_working = frame_meta.get("non_dng_xyz_to_working_matrix_d65")
+        xyz_source = str(frame_meta.get("non_dng_xyz_to_working_source_d65") or "constant_xyz_d65_to_lin_srgb_d65")
+    else:
+        xyz_to_working = frame_meta.get("non_dng_xyz_to_working_matrix_d50adapt")
+        xyz_source = str(
+            frame_meta.get("non_dng_xyz_to_working_source_d50adapt") or "constant_xyz_d50_to_lin_srgb_d65"
+        )
+    m_xyz_to_working = np.asarray(xyz_to_working, dtype=np.float32) if xyz_to_working is not None else None
+    if m_xyz_to_working is None or m_xyz_to_working.shape != (3, 3) or not np.all(np.isfinite(m_xyz_to_working)):
+        out["auto_default_reason"] = "invalid_non_dng_xyz_to_working"
         return out
 
     out["mode"] = "chain"
-    out["cam_to_xyz_matrix"] = cam_to_xyz
-    out["xyz_to_working_matrix"] = xyz_to_working
-    out["cam_to_xyz_source"] = cam_source if cam_source != "none" else "dng_tags_unavailable"
-    out["xyz_to_working_source"] = xyz_source if xyz_source != "none" else "constant_xyz_d50_to_lin_srgb_d65"
+    out["cam_to_xyz_matrix"] = m_cam_to_xyz.tolist()
+    out["xyz_to_working_matrix"] = m_xyz_to_working.tolist()
+    out["cam_to_xyz_source"] = str(frame_meta.get("non_dng_cam_to_xyz_source") or "rawpy_rgb_xyz_matrix_non_dng")
+    out["xyz_to_working_source"] = xyz_source
+    out["ccm_source"] = "non_dng_meta_default"
+    out["non_dng_meta_rule"] = "prefer_pre_unwb_daylight_d65_else_selected_d50adapt"
+    out["non_dng_meta_input_variant"] = chosen_input_variant
+    out["non_dng_meta_wp_variant"] = chosen_wp_variant
     out["auto_default_applied"] = True
-    out["auto_default_reason"] = "applied_from_dng_tags"
+    out["auto_default_reason"] = "applied_non_dng_meta_default"
     return out
 
 

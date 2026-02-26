@@ -171,12 +171,35 @@ def _select_raw_wb(raw: Any, cfa_pattern: str, color_desc: str) -> Tuple[Tuple[f
     return (1.0, 1.0, 1.0), "unity"
 
 
+def _extract_daylight_wb(raw: Any, cfa_pattern: str, color_desc: str) -> Optional[Tuple[float, float, float]]:
+    daylight_wb = getattr(raw, "daylight_whitebalance", None)
+    if daylight_wb is None:
+        return None
+    gains = _normalize_wb_gains_from_desc(color_desc, daylight_wb)
+    if gains is None:
+        gains = _normalize_wb_gains(cfa_pattern, daylight_wb)
+    arr = np.asarray(gains, dtype=np.float32).reshape(3)
+    if not np.all(np.isfinite(arr)) or np.any(arr <= 0.0):
+        return None
+    return float(arr[0]), float(arr[1]), float(arr[2])
+
+
 _D50_WHITE_XYZ = np.array([0.96422, 1.0, 0.82521], dtype=np.float32)
 _XYZ_TO_LIN_SRGB_D65 = np.array(
     [
         [3.2404542, -1.5371385, -0.4985314],
         [-0.9692660, 1.8760108, 0.0415560],
         [0.0556434, -0.2040259, 1.0572252],
+    ],
+    dtype=np.float32,
+)
+
+_MERGE_GREEN_SUM_4_TO_3 = np.array(
+    [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0],
     ],
     dtype=np.float32,
 )
@@ -443,6 +466,53 @@ def derive_dng_ccm_from_file(path: str) -> Dict[str, Any]:
     return derive_dng_ccm_from_exif_metadata(meta)
 
 
+def derive_non_dng_ccm_from_rawpy_matrix(raw_m: Any) -> Dict[str, Any]:
+    """
+    Deterministic non-DNG camera->XYZ extraction from rawpy.rgb_xyz_matrix.
+
+    Returns a 3x3 matrix (XYZ <- camRGB) intended for pre-unWB camera RGB.
+    """
+    if raw_m is None:
+        return {"available": False, "reason": "missing_rgb_xyz_matrix"}
+
+    m = np.asarray(raw_m, dtype=np.float32)
+    if not np.all(np.isfinite(m)):
+        return {"available": False, "reason": "invalid_rgb_xyz_matrix_nonfinite"}
+
+    matrix_xyz_by_cam: Optional[np.ndarray] = None
+    source = "none"
+    try:
+        if m.shape == (4, 3):
+            cam3_by_xyz3 = _MERGE_GREEN_SUM_4_TO_3.T @ m
+            matrix_xyz_by_cam = np.linalg.inv(cam3_by_xyz3).astype(np.float32)
+            source = "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv"
+        elif m.shape == (3, 4):
+            cam4_by_xyz3 = m.T
+            cam3_by_xyz3 = _MERGE_GREEN_SUM_4_TO_3.T @ cam4_by_xyz3
+            matrix_xyz_by_cam = np.linalg.inv(cam3_by_xyz3).astype(np.float32)
+            source = "rawpy_rgb_xyz_matrix_3x4_t_mergeg_sum_inv"
+        elif m.shape == (3, 3):
+            matrix_xyz_by_cam = m.astype(np.float32)
+            source = "rawpy_rgb_xyz_matrix_3x3_as_is"
+        else:
+            return {"available": False, "reason": f"unsupported_rgb_xyz_matrix_shape_{list(m.shape)}"}
+    except np.linalg.LinAlgError:
+        return {"available": False, "reason": "rgb_xyz_matrix_inversion_failed"}
+
+    if matrix_xyz_by_cam is None:
+        return {"available": False, "reason": "missing_non_dng_cam_to_xyz"}
+    if not np.all(np.isfinite(matrix_xyz_by_cam)) or float(np.linalg.norm(matrix_xyz_by_cam)) < 1e-8:
+        return {"available": False, "reason": "invalid_non_dng_cam_to_xyz"}
+
+    return {
+        "available": True,
+        "cam_to_xyz_matrix": matrix_xyz_by_cam.tolist(),
+        "cam_to_xyz_source": source,
+        "selected_input_variant": "pre_unwb",
+        "raw_rgb_xyz_matrix_shape": [int(x) for x in m.shape],
+    }
+
+
 def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str, Any]]:
     try:
         import rawpy  # type: ignore
@@ -489,6 +559,8 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
             fallback_cfa,
         )
         wb_gains, wb_source = _select_raw_wb(raw, cfa_pattern, color_desc)
+        daylight_wb_gains = _extract_daylight_wb(raw, cfa_pattern, color_desc)
+        non_dng_info = derive_non_dng_ccm_from_rawpy_matrix(getattr(raw, "rgb_xyz_matrix", None))
 
     ccm_info: Dict[str, Any] = {"available": False, "reason": "non_dng_input"}
     if os.path.splitext(path)[1].lower() == ".dng":
@@ -504,13 +576,28 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
         "cam_to_xyz_source": "none",
         "xyz_to_working_source": "none",
         "ccm_auto_reason": ccm_info.get("reason"),
+        "non_dng_cam_to_xyz_source": "none",
+        "non_dng_selected_input_variant": "none",
+        "non_dng_meta_reason": non_dng_info.get("reason"),
     }
+    if daylight_wb_gains is not None:
+        meta["daylight_wb_gains"] = [float(x) for x in daylight_wb_gains]
     if ccm_info.get("available"):
         meta["cam_to_xyz_matrix"] = ccm_info["cam_to_xyz_matrix"]
         meta["cam_to_xyz_source"] = ccm_info.get("cam_to_xyz_source", "none")
         meta["xyz_to_working_matrix"] = ccm_info["xyz_to_working_matrix"]
         meta["xyz_to_working_source"] = ccm_info.get("xyz_to_working_source", "none")
         meta["ccm_auto_reason"] = "dng_tags_available"
+    elif non_dng_info.get("available"):
+        meta["non_dng_cam_to_xyz_matrix"] = non_dng_info["cam_to_xyz_matrix"]
+        meta["non_dng_cam_to_xyz_source"] = non_dng_info.get("cam_to_xyz_source", "none")
+        meta["non_dng_selected_input_variant"] = non_dng_info.get("selected_input_variant", "none")
+        meta["non_dng_xyz_to_working_matrix_d65"] = _XYZ_TO_LIN_SRGB_D65.astype(np.float32).tolist()
+        meta["non_dng_xyz_to_working_source_d65"] = "constant_xyz_d65_to_lin_srgb_d65"
+        meta["non_dng_xyz_to_working_matrix_d50adapt"] = _xyz_d50_to_lin_srgb_d65().astype(np.float32).tolist()
+        meta["non_dng_xyz_to_working_source_d50adapt"] = "constant_xyz_d50_to_lin_srgb_d65"
+        meta["non_dng_meta_reason"] = "non_dng_meta_available"
+        meta["ccm_auto_reason"] = "non_dng_meta_available"
     return mosaic, meta
 
 

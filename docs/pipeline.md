@@ -94,8 +94,14 @@ Recommended behavior:
 ## CCM resolver policy (current)
 - Stage list/order is unchanged; CCM policy is resolved in runner config before the `ccm` stage executes.
 - Explicit `stages.ccm.*` keys win over auto-default policy.
-- For DNG inputs, runner may auto-inject `ccm.mode=chain` from DNG metadata-derived matrices.
-- If DNG metadata matrices are unavailable/invalid, runner falls back to identity behavior with recorded reason in stage debug params.
+- RAW auto-default hierarchy:
+  1) DNG RAW: runner may auto-inject `ccm.mode=chain` from deterministic DNG metadata-derived matrices.
+  2) non-DNG RAW: runner may auto-inject `ccm.mode=chain` from metadata policy `non_dng_meta_default`.
+- Current non-DNG deterministic rule (no reference scoring): `prefer_pre_unwb_daylight_d65_else_selected_d50adapt`.
+  - prefer `pre_unwb_daylight|d65`
+  - fallback to `selected_input|d50adapt`
+- If metadata matrices are unavailable/invalid, runner falls back to identity behavior with recorded reason in stage debug params.
+- Debug provenance for non-DNG auto-default includes `ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, and `non_dng_meta_wp_variant`.
 
 ## What’s missing vs a “full ISP”
 mini-ISP includes a realistic single-frame skeleton, but does not yet include:

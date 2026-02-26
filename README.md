@@ -90,11 +90,13 @@ LSC toggle (optional):
 python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_no_lsc --set stages.lsc.enabled=false
 ```
 
-DNG CCM auto-default (DNG inputs only):
+RAW CCM auto-default (DNG + non-DNG RAW):
 ```bash
-# If input is DNG and stages.ccm is not explicitly configured,
-# runner auto-tries a deterministic DNG-tag CCM path and applies chain mode.
+# DNG auto-default (when stages.ccm is not explicitly configured):
 python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_auto_ccm
+
+# non-DNG RAW auto-default (for example NEF/CR2/ARW/RW2/ORF):
+python -m mini_isp.run --input path/to/sample.nef --out runs --pipeline_mode classic --name raw_demo_non_dng_auto_ccm
 
 # Force identity (explicit config always wins over auto-default).
 python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode classic --name raw_demo_ccm_identity --set stages.ccm.mode=identity
@@ -102,8 +104,12 @@ python -m mini_isp.run --input path/to/sample.dng --out runs --pipeline_mode cla
 Behavior summary:
 - Explicit `stages.ccm.*` keys always win.
 - DNG auto-default uses metadata-derived chain matrices when available.
-- If DNG CCM metadata is unavailable/invalid, CCM remains identity with recorded reason in `stages/<nn>_ccm/debug.json`.
-- Non-DNG RAW does not auto-enable CCM in this patch.
+- Non-DNG RAW auto-default uses deterministic metadata-only policy `non_dng_meta_default` (no reference scoring).
+- Current non-DNG rule is `prefer_pre_unwb_daylight_d65_else_selected_d50adapt`:
+  - prefer `pre_unwb_daylight|d65`
+  - fallback to `selected_input|d50adapt`
+- If DNG/non-DNG metadata is unavailable or invalid, CCM remains identity with recorded reason in `stages/<nn>_ccm/debug.json`.
+- Non-DNG policy provenance is recorded in CCM debug params (`ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, `non_dng_meta_wp_variant`).
 - RGB/non-Bayer DNG files are not supported by the RAW mosaic pipeline and fail before run-folder creation.
 
 CCM chain mode (optional manual config; requires YAML for 3×3 matrices):

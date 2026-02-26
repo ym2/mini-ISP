@@ -160,3 +160,48 @@ def test_load_raw_mosaic_rejects_non_bayer_dng(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(ValueError, match="not a 2D Bayer mosaic"):
         load_raw_mosaic("fake_rgb.dng", "RGGB")
+
+
+def test_load_raw_mosaic_non_dng_adds_non_dng_ccm_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    rawpy = pytest.importorskip("rawpy")
+
+    class DummyRaw:
+        def __init__(self) -> None:
+            self.raw_image_visible = np.array([[100, 200], [300, 400]], dtype=np.uint16)
+            self.raw_image = self.raw_image_visible
+            self.white_level = 4095
+            self.black_level_per_channel = [64, 64, 64, 64]
+            self.raw_pattern = np.array([[0, 1], [1, 2]], dtype=np.uint8)
+            self.color_desc = b"RGBG"
+            self.camera_whitebalance = [2.0, 1.0, 1.5, 1.0]
+            self.daylight_whitebalance = [2.2, 1.0, 1.4, 1.0]
+            self.rgb_xyz_matrix = np.array(
+                [
+                    [0.8, 0.1, 0.1],
+                    [0.1, 0.9, 0.0],
+                    [0.0, 0.1, 0.9],
+                    [0.1, 0.8, 0.1],
+                ],
+                dtype=np.float32,
+            )
+
+        def __enter__(self) -> "DummyRaw":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def fake_imread(path: str) -> DummyRaw:
+        return DummyRaw()
+
+    monkeypatch.setattr(rawpy, "imread", fake_imread)
+
+    _mosaic, meta = load_raw_mosaic("fake.nef", "RGGB")
+    assert meta["non_dng_cam_to_xyz_source"] == "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv"
+    assert meta["non_dng_selected_input_variant"] == "pre_unwb"
+    assert np.array(meta["non_dng_cam_to_xyz_matrix"], dtype=np.float32).shape == (3, 3)
+    assert np.array(meta["non_dng_xyz_to_working_matrix_d65"], dtype=np.float32).shape == (3, 3)
+    assert np.array(meta["non_dng_xyz_to_working_matrix_d50adapt"], dtype=np.float32).shape == (3, 3)
+    assert meta["non_dng_meta_reason"] == "non_dng_meta_available"
+    assert meta["ccm_auto_reason"] == "non_dng_meta_available"
+    assert np.array(meta["daylight_wb_gains"], dtype=np.float32).shape == (3,)

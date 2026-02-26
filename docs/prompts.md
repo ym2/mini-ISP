@@ -1004,6 +1004,62 @@ python -m mini_isp.run --input data/sample.dng --out runs --pipeline_mode classi
 
 ---
 
+## v0.2-M9 — Non-DNG CCM auto-default (deterministic metadata policy)
+
+### Spec lock
+Goal
+	•	Extend the runner-side CCM resolver to support RAW non-DNG inputs with a deterministic metadata-only policy.
+	•	Keep `ccm` stage math/modes unchanged; this is resolver policy, not a new stage.
+
+Naming (production-facing)
+	•	Resolver policy id: `non_dng_meta_default`
+	•	Rule label (debug): `prefer_pre_unwb_daylight_d65_else_selected_d50adapt`
+	•	Do not expose `_refcheck` names (for example `deterministic_v1/v2`) in mini-ISP.
+
+Policy hierarchy (no scoring)
+	•	Explicit `stages.ccm.*` always wins (no auto override).
+	•	If input is DNG RAW: keep v0.2-M8 behavior.
+	•	If input is non-DNG RAW and no explicit CCM config: apply `non_dng_meta_default`.
+	•	If non-DNG metadata is missing/invalid: deterministic identity fallback with explicit reason.
+	•	For non-RAW inputs: keep existing identity/default behavior.
+
+Deterministic non-DNG rule
+	•	Source matrices from metadata already available through loader plumbing (for example `rawpy.rgb_xyz_matrix`-derived camera→XYZ and WB metadata).
+	•	Use fixed priority (no reference-based selection):
+	•	First choice: `pre_unwb_daylight | d65`
+	•	Fallback: `selected_input | d50adapt`
+	•	Reject non-finite / near-zero matrices and fall back deterministically.
+
+Debug / provenance (CCM stage debug.json params)
+	•	`auto_default_applied: true|false`
+	•	`auto_default_reason` (for example `explicit_stage_config|applied_non_dng_meta_default|missing_non_dng_meta|non_raw_input`)
+	•	`ccm_source` (include `non_dng_meta_default` when applied)
+	•	`non_dng_meta_rule: "prefer_pre_unwb_daylight_d65_else_selected_d50adapt"` (when applied)
+	•	`non_dng_meta_input_variant` and `non_dng_meta_wp_variant` (when applied)
+	•	Keep existing chain fields and backward-compat `meta.ccm` / `meta.ccm_mode`.
+
+Tests
+	•	Resolver precedence: explicit `stages.ccm.*` blocks auto-default.
+	•	Non-DNG RAW auto-default path applies deterministic rule without reference scoring.
+	•	Missing/invalid metadata matrices produce identity fallback with reason.
+	•	PNG/bootstrap path unchanged.
+
+Validation runs
+	•	Run representative non-DNG Bayer RAWs used in M9 exploration.
+	•	Check run success, `06_ccm` previews/finals, and debug provenance consistency.
+	•	Run `pytest -q`.
+
+Constraints
+	•	No run-folder layout, `manifest.json` schema, viewer assets/paths, or stage-order changes.
+	•	No new heavy dependencies.
+
+Deliverables
+	•	`pytest -q`
+	•	Example:
+python -m mini_isp.run --input data/sample.nef --out runs --pipeline_mode classic --name v02_m9_non_dng_auto
+
+---
+
 ## v0.3-M1 — Diagnostics surfaced in viewer (non-breaking)
 
 ### Final prompt

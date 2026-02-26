@@ -64,6 +64,11 @@ Stages may add keys, but must not delete required keys.
 ### 2.4 Stats metadata
 - `meta.stats_3a`: dict with fields produced by `stats_3a` (see stage section)
 
+### 2.5 Optional resolver metadata (RAW auto-default inputs)
+- `meta.daylight_wb_gains`: optional `[r, g, b]` daylight WB triplet
+- `meta.non_dng_cam_to_xyz_matrix`: optional non-DNG metadata-derived 3×3 camera→XYZ matrix
+- `meta.non_dng_selected_input_variant`: optional non-DNG input-variant hint (for resolver use)
+
 ---
 
 ## 3. Standard artifacts (per stage)
@@ -178,11 +183,21 @@ Responsibilities:
 - support identity/manual/profile modes
 - support `chain` mode (camera RGB → XYZ via `cam_to_xyz_matrix`, then XYZ → working via `xyz_to_working_matrix`, collapsed to an effective 3×3)
 - default `xyz_to_working_matrix` is built-in XYZ(D65) → linear sRGB(D65); runner may inject other working transforms (for example D50-adapted paths)
+- support runner-resolved auto-default policy without changing stage order:
+  - DNG RAW auto-default path (v0.2-M8)
+  - non-DNG RAW deterministic metadata path (v0.2-M9, policy id `non_dng_meta_default`)
+    - current rule: `prefer_pre_unwb_daylight_d65_else_selected_d50adapt`
+    - prefer `pre_unwb_daylight|d65`, else `selected_input|d50adapt`
 - record `meta.ccm` and `meta.ccm_mode`
 
 Artifacts:
 - debug: mode + matrix (for `chain`: component matrices + effective matrix + source/provenance)
 - when runner auto-default policy is active, debug params should include `auto_default_applied` and `auto_default_reason`
+- for non-DNG auto-default, debug params should also include:
+  - `ccm_source=non_dng_meta_default`
+  - `non_dng_meta_rule`
+  - `non_dng_meta_input_variant`
+  - `non_dng_meta_wp_variant`
 
 ---
 
