@@ -964,7 +964,7 @@ Add DNG metadata extraction that feeds Patch-1 resolver with deterministic matri
 
 Scope
 	•	DNG only (`.dng`) in this patch.
-	•	No `_refcheck` references in mini-ISP docs/code.
+	•	No references to external validation repositories in mini-ISP docs/code.
 	•	No stage split; continue using `ccm.mode=chain`.
 
 DNG metadata matrix source
@@ -1014,7 +1014,7 @@ Goal
 Naming (production-facing)
 	•	Resolver policy id: `non_dng_meta_default`
 	•	Rule label (debug): `prefer_pre_unwb_daylight_d65_else_selected_d50adapt`
-	•	Do not expose `_refcheck` names (for example `deterministic_v1/v2`) in mini-ISP.
+	•	Do not expose exploration-internal names (for example `deterministic_v1/v2`) in mini-ISP.
 
 Policy hierarchy (no scoring)
 	•	Explicit `stages.ccm.*` always wins (no auto override).
