@@ -185,9 +185,13 @@ Responsibilities:
 - default `xyz_to_working_matrix` is built-in XYZ(D65) → linear sRGB(D65); runner may inject other working transforms (for example D50-adapted paths)
 - support runner-resolved auto-default policy without changing stage order:
   - DNG RAW auto-default path (v0.2-M8)
-  - non-DNG RAW deterministic metadata path (v0.2-M9, policy id `non_dng_meta_default`)
-    - current rule: `prefer_pre_unwb_daylight_d65_else_selected_d50adapt`
-    - prefer `pre_unwb_daylight|d65`, else `selected_input|d50adapt`
+  - non-DNG RAW deterministic metadata path (v0.2-M10, policy id `non_dng_meta_default`)
+    - current rule: `wp_infer_clean_d65_d50_else_daylight_with_legacy_override`
+    - clean D65 -> `selected_input|d65`
+    - clean D50 -> `selected_input|d50adapt`
+    - ambiguous + daylight WB -> `pre_unwb_daylight|d65`
+    - legacy high-error marker override -> `selected_input|d50adapt`
+    - else fallback -> `pre_unwb_daylight|d65` (or `selected_input|d50adapt` if daylight WB unavailable)
 - record `meta.ccm` and `meta.ccm_mode`
 
 Artifacts:
@@ -198,6 +202,10 @@ Artifacts:
   - `non_dng_meta_rule`
   - `non_dng_meta_input_variant`
   - `non_dng_meta_wp_variant`
+  - `non_dng_meta_branch`
+  - `non_dng_meta_selection_reason`
+  - `non_dng_meta_wp_err_d50`
+  - `non_dng_meta_wp_err_d65`
 
 ---
 

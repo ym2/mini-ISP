@@ -1060,6 +1060,67 @@ python -m mini_isp.run --input data/sample.nef --out runs --pipeline_mode classi
 
 ---
 
+## v0.2-M10 — Non-DNG CCM auto-default refinement (metadata whitepoint branches)
+
+### Final prompt
+v0.2-M10 — Non-DNG CCM auto-default refinement (metadata whitepoint branches)
+
+Goal
+	•	Keep `non_dng_meta_default` policy id and resolver/stage split unchanged.
+	•	Upgrade the non-DNG metadata rule to a whitepoint-inference branch policy while keeping deterministic behavior.
+	•	Do not introduce reference scoring in mini-ISP.
+
+Policy (non-DNG RAW, no explicit `stages.ccm.*`)
+	•	Infer whitepoint fit from metadata only:
+	•	inputs: `non_dng_cam_to_xyz_matrix` + as-shot WB (`wb_gains`)
+	•	metrics: `wp_err_d50`, `wp_err_d65` (sum-abs against D50/D65 normalized whites)
+	•	Decision:
+	•	if `wp_err_d65 < 0.05` -> `selected_input|d65`
+	•	elif `wp_err_d50 < 0.04` -> `selected_input|d50adapt`
+	•	elif `min(wp_err_d50, wp_err_d65) <= 0.08` and daylight WB exists -> `pre_unwb_daylight|d65`
+	•	elif legacy marker in source path (`Nikon - D1 -`, `Olympus - E-M1MarkII -`) -> `selected_input|d50adapt`
+	•	else -> `pre_unwb_daylight|d65` (or `selected_input|d50adapt` if daylight WB unavailable)
+	•	If required metadata matrices/WB are missing/invalid: keep deterministic identity fallback with explicit reason.
+
+Debug / provenance (CCM stage debug params)
+	•	Keep existing fields (`auto_default_applied`, `auto_default_reason`, `ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, `non_dng_meta_wp_variant`)
+	•	Add:
+	•	`non_dng_meta_branch`
+	•	`non_dng_meta_selection_reason`
+	•	`non_dng_meta_wp_err_d50`
+	•	`non_dng_meta_wp_err_d65`
+	•	`non_dng_meta_legacy_override_target`
+	•	`non_dng_meta_legacy_override_applied`
+
+Constraints
+	•	No stage-order change.
+	•	No run-folder / manifest / viewer schema changes.
+	•	No heavy dependencies.
+
+Validation
+	•	Update resolver unit tests for new branch behavior and debug provenance.
+	•	Run representative non-DNG RAW inspections and `pytest -q`.
+
+---
+
+## v0.2-M11 — Non-DNG outlier fallback policy
+
+Scope intent
+	•	Add a pragmatic fallback policy for outlier-class non-DNG RAW cases where metadata branching remains visibly wrong.
+	•	Keep deterministic precedence and provenance explicit in CCM debug params.
+	•	Do not change matrix-source extraction semantics in this milestone.
+
+---
+
+## v0.2-M12 — Non-DNG matrix-source parity refinement
+
+Scope intent
+	•	Refine non-DNG metadata matrix extraction semantics to align with the validated exploration behavior.
+	•	Keep resolver/stage split and deterministic policy hierarchy unchanged.
+	•	Revalidate on representative corpus before any further default-policy tightening.
+
+---
+
 ## v0.3-M1 — Diagnostics surfaced in viewer (non-breaking)
 
 ### Final prompt

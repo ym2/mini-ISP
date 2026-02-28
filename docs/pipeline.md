@@ -97,11 +97,14 @@ Recommended behavior:
 - RAW auto-default hierarchy:
   1) DNG RAW: runner may auto-inject `ccm.mode=chain` from deterministic DNG metadata-derived matrices.
   2) non-DNG RAW: runner may auto-inject `ccm.mode=chain` from metadata policy `non_dng_meta_default`.
-- Current non-DNG deterministic rule (no reference scoring): `prefer_pre_unwb_daylight_d65_else_selected_d50adapt`.
-  - prefer `pre_unwb_daylight|d65`
-  - fallback to `selected_input|d50adapt`
+- Current non-DNG deterministic rule (no reference scoring): `wp_infer_clean_d65_d50_else_daylight_with_legacy_override`.
+  - clean D65 (`wp_err_d65 < 0.05`) -> `selected_input|d65`
+  - clean D50 (`wp_err_d50 < 0.04`) -> `selected_input|d50adapt`
+  - ambiguous (`min_err <= 0.08`) with daylight WB -> `pre_unwb_daylight|d65`
+  - high-error legacy marker (`Nikon D1`, `Olympus E-M1MarkII`) -> `selected_input|d50adapt`
+  - otherwise -> `pre_unwb_daylight|d65` (or `selected_input|d50adapt` when daylight WB is unavailable)
 - If metadata matrices are unavailable/invalid, runner falls back to identity behavior with recorded reason in stage debug params.
-- Debug provenance for non-DNG auto-default includes `ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, and `non_dng_meta_wp_variant`.
+- Debug provenance for non-DNG auto-default includes `ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, `non_dng_meta_wp_variant`, `non_dng_meta_branch`, `non_dng_meta_selection_reason`, `non_dng_meta_wp_err_d50`, and `non_dng_meta_wp_err_d65`.
 
 ## What’s missing vs a “full ISP”
 mini-ISP includes a realistic single-frame skeleton, but does not yet include:

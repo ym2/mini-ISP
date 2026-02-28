@@ -300,7 +300,7 @@ def _resolve_ccm_stage_params(
     - Explicit CCM config (presence of behavior keys) always wins.
     - Otherwise, apply RAW auto-default policy from metadata when available:
       - DNG RAW: v0.2-M8 DNG-tags policy.
-      - non-DNG RAW: v0.2-M9 non_dng_meta_default policy.
+      - non-DNG RAW: v0.2-M10 non_dng_meta_default policy.
     - Non-RAW inputs keep default identity behavior.
     """
     out = dict(stage_config)
@@ -339,7 +339,7 @@ def _resolve_ccm_stage_params(
         out["auto_default_reason"] = "applied_from_dng_tags"
         return out
 
-    # non-DNG RAW policy: non_dng_meta_default
+    # non-DNG RAW policy: non_dng_meta_default (v0.2-M10 deterministic metadata rule)
     non_dng_cam_to_xyz = frame_meta.get("non_dng_cam_to_xyz_matrix")
     if non_dng_cam_to_xyz is None:
         out["cam_to_xyz_source"] = str(frame_meta.get("non_dng_cam_to_xyz_source") or "none")
@@ -367,14 +367,70 @@ def _resolve_ccm_stage_params(
     daylight_wb = _valid_wb_triplet(frame_meta.get("daylight_wb_gains"))
     selected_wb = _valid_wb_triplet(frame_meta.get("wb_gains"))
 
-    chosen_input_variant = "selected_input"
-    chosen_wp_variant = "d50adapt"
-    wb_for_unwb = selected_wb
+    def _infer_whitepoint_errors(matrix_xyz_by_cam: np.ndarray, wb_triplet: np.ndarray | None) -> tuple[float, float]:
+        if wb_triplet is None:
+            return (float("inf"), float("inf"))
+        if not np.all(np.isfinite(wb_triplet)) or np.any(wb_triplet <= 0.0):
+            return (float("inf"), float("inf"))
+        response = np.asarray(matrix_xyz_by_cam, dtype=np.float64) @ (1.0 / np.asarray(wb_triplet, dtype=np.float64))
+        y = float(response[1])
+        if not np.isfinite(y) or y <= 0.0:
+            return (float("inf"), float("inf"))
+        norm = response / y
+        d50 = np.array([0.96422, 1.0, 0.82521], dtype=np.float64)
+        d65 = np.array([0.95047, 1.0, 1.08883], dtype=np.float64)
+        err_d50 = float(np.sum(np.abs(norm - d50)))
+        err_d65 = float(np.sum(np.abs(norm - d65)))
+        return (err_d50, err_d65)
 
-    if daylight_wb is not None:
+    def _is_legacy_override_target(source_path_value: str) -> bool:
+        source_hint = source_path_value.lower()
+        markers = ("nikon - d1 -", "olympus - e-m1markii -")
+        return any(marker in source_hint for marker in markers)
+
+    has_pre_unwb_daylight = (input_variant == "pre_unwb") and (daylight_wb is not None)
+    wp_err_d50, wp_err_d65 = _infer_whitepoint_errors(m_base, selected_wb)
+    min_err = min(wp_err_d50, wp_err_d65)
+
+    thresh_d65_clean = 0.05
+    thresh_d50_clean = 0.04
+    thresh_ambiguous = 0.08
+
+    legacy_target = _is_legacy_override_target(source_path)
+    legacy_override_applied = False
+    if not np.isfinite(wp_err_d50) or not np.isfinite(wp_err_d65) or wp_err_d50 < 0.0 or wp_err_d65 < 0.0:
+        chosen_input_variant = "pre_unwb_daylight" if has_pre_unwb_daylight else "selected_input"
+        chosen_wp_variant = "d65" if has_pre_unwb_daylight else "d50adapt"
+        non_dng_meta_branch = "invalid_inference_fallback"
+        non_dng_meta_reason = "non_finite_or_negative_wp_error"
+    elif wp_err_d65 < thresh_d65_clean:
+        chosen_input_variant = "selected_input"
+        chosen_wp_variant = "d65"
+        non_dng_meta_branch = "clean_match_d65"
+        non_dng_meta_reason = "wp_err_d65<0.05"
+    elif wp_err_d50 < thresh_d50_clean:
+        chosen_input_variant = "selected_input"
+        chosen_wp_variant = "d50adapt"
+        non_dng_meta_branch = "clean_match_d50"
+        non_dng_meta_reason = "wp_err_d50<0.04"
+    elif min_err <= thresh_ambiguous and has_pre_unwb_daylight:
         chosen_input_variant = "pre_unwb_daylight"
         chosen_wp_variant = "d65"
-        wb_for_unwb = daylight_wb
+        non_dng_meta_branch = "ambiguous_daylight_prefer"
+        non_dng_meta_reason = "min_wp_err<=0.08"
+    elif legacy_target:
+        chosen_input_variant = "selected_input"
+        chosen_wp_variant = "d50adapt"
+        non_dng_meta_branch = "legacy_override_selected_d50"
+        non_dng_meta_reason = "legacy_case_marker+high_wp_error"
+        legacy_override_applied = True
+    else:
+        chosen_input_variant = "pre_unwb_daylight" if has_pre_unwb_daylight else "selected_input"
+        chosen_wp_variant = "d65" if has_pre_unwb_daylight else "d50adapt"
+        non_dng_meta_branch = "high_error_fallback"
+        non_dng_meta_reason = "high_wp_error_non_legacy"
+
+    wb_for_unwb = selected_wb if chosen_input_variant == "selected_input" else daylight_wb
 
     m_cam_to_xyz = np.array(m_base, copy=True)
     if input_variant == "pre_unwb":
@@ -402,9 +458,15 @@ def _resolve_ccm_stage_params(
     out["cam_to_xyz_source"] = str(frame_meta.get("non_dng_cam_to_xyz_source") or "rawpy_rgb_xyz_matrix_non_dng")
     out["xyz_to_working_source"] = xyz_source
     out["ccm_source"] = "non_dng_meta_default"
-    out["non_dng_meta_rule"] = "prefer_pre_unwb_daylight_d65_else_selected_d50adapt"
+    out["non_dng_meta_rule"] = "wp_infer_clean_d65_d50_else_daylight_with_legacy_override"
     out["non_dng_meta_input_variant"] = chosen_input_variant
     out["non_dng_meta_wp_variant"] = chosen_wp_variant
+    out["non_dng_meta_branch"] = non_dng_meta_branch
+    out["non_dng_meta_selection_reason"] = non_dng_meta_reason
+    out["non_dng_meta_wp_err_d50"] = float(wp_err_d50)
+    out["non_dng_meta_wp_err_d65"] = float(wp_err_d65)
+    out["non_dng_meta_legacy_override_target"] = bool(legacy_target)
+    out["non_dng_meta_legacy_override_applied"] = bool(legacy_override_applied)
     out["auto_default_applied"] = True
     out["auto_default_reason"] = "applied_non_dng_meta_default"
     return out
