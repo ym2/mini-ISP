@@ -105,15 +105,18 @@ Behavior summary:
 - Explicit `stages.ccm.*` keys always win.
 - DNG auto-default uses metadata-derived chain matrices when available.
 - Non-DNG RAW auto-default uses deterministic metadata-only policy `non_dng_meta_default` (no reference scoring).
+- Non-DNG matrix extraction (v0.2-M12) uses deterministic source policy `wp_error_min_det` from `rawpy.rgb_xyz_matrix` candidates.
 - Current non-DNG rule is `wp_infer_clean_d65_d50_else_daylight_with_outlier_identity`:
+  - camera→XYZ candidate matrix is selected first (metadata-only), then branch policy is applied
   - infer whitepoint from `non_dng_cam_to_xyz_matrix` + as-shot WB
   - if clean D65 (`wp_err_d65 < 0.05`): use `selected_input|d65`
   - if clean D50 (`wp_err_d50 < 0.04`): use `selected_input|d50adapt`
   - if ambiguous (`min_err <= 0.08`) and daylight WB exists: use `pre_unwb_daylight|d65`
-  - if high-error outlier confidence trigger (`min(wp_err_d50, wp_err_d65) > 0.35`): use identity fallback (skip auto chain)
+  - if high-error outlier confidence trigger (`min(wp_err_d50, wp_err_d65) > 0.33`): use identity fallback (skip auto chain)
   - otherwise: fallback to `pre_unwb_daylight|d65` (or `selected_input|d50adapt` if daylight WB unavailable)
 - If DNG/non-DNG metadata is unavailable or invalid, CCM remains identity with recorded reason in `stages/<nn>_ccm/debug.json`.
 - Non-DNG policy provenance is recorded in CCM debug params (`ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, `non_dng_meta_wp_variant`, `non_dng_meta_branch`, `non_dng_meta_selection_reason`, `non_dng_meta_wp_err_d50`, `non_dng_meta_wp_err_d65`, `non_dng_meta_outlier_confidence_threshold`, `non_dng_meta_outlier_confidence_trigger`, `non_dng_meta_outlier_fallback_applied`).
+- Non-DNG matrix-source provenance is also recorded (`non_dng_matrix_source_policy`, `non_dng_matrix_selected_source_variant`, `non_dng_matrix_selected_wp_err_*`, `non_dng_matrix_candidate_count`).
 - RGB/non-Bayer DNG files are not supported by the RAW mosaic pipeline and fail before run-folder creation.
 
 CCM chain mode (optional manual config; requires YAML for 3×3 matrices):

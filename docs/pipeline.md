@@ -97,14 +97,17 @@ Recommended behavior:
 - RAW auto-default hierarchy:
   1) DNG RAW: runner may auto-inject `ccm.mode=chain` from deterministic DNG metadata-derived matrices.
   2) non-DNG RAW: runner may auto-inject `ccm.mode=chain` from metadata policy `non_dng_meta_default`.
+- Non-DNG matrix-source selection (v0.2-M12):
+  - source policy `wp_error_min_det` selects `non_dng_cam_to_xyz_matrix` from `rawpy.rgb_xyz_matrix` candidates via metadata-only whitepoint error minimization.
+  - selected matrix/source are then consumed by the non-DNG resolver branches below.
 - Current non-DNG deterministic rule (no reference scoring): `wp_infer_clean_d65_d50_else_daylight_with_outlier_identity`.
   - clean D65 (`wp_err_d65 < 0.05`) -> `selected_input|d65`
   - clean D50 (`wp_err_d50 < 0.04`) -> `selected_input|d50adapt`
   - ambiguous (`min_err <= 0.08`) with daylight WB -> `pre_unwb_daylight|d65`
-  - high-error outlier confidence trigger (`min(wp_err_d50, wp_err_d65) > 0.35`) -> identity fallback (skip auto chain)
+  - high-error outlier confidence trigger (`min(wp_err_d50, wp_err_d65) > 0.33`) -> identity fallback (skip auto chain)
   - otherwise -> `pre_unwb_daylight|d65` (or `selected_input|d50adapt` when daylight WB is unavailable)
 - If metadata matrices are unavailable/invalid, runner falls back to identity behavior with recorded reason in stage debug params.
-- Debug provenance for non-DNG auto-default includes `ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, `non_dng_meta_wp_variant`, `non_dng_meta_branch`, `non_dng_meta_selection_reason`, `non_dng_meta_wp_err_d50`, `non_dng_meta_wp_err_d65`, `non_dng_meta_outlier_confidence_threshold`, `non_dng_meta_outlier_confidence_trigger`, and `non_dng_meta_outlier_fallback_applied`.
+- Debug provenance for non-DNG auto-default includes `ccm_source`, `non_dng_meta_rule`, `non_dng_meta_input_variant`, `non_dng_meta_wp_variant`, `non_dng_meta_branch`, `non_dng_meta_selection_reason`, `non_dng_meta_wp_err_d50`, `non_dng_meta_wp_err_d65`, `non_dng_meta_outlier_confidence_threshold`, `non_dng_meta_outlier_confidence_trigger`, `non_dng_meta_outlier_fallback_applied`, and matrix-source details (`non_dng_matrix_source_policy`, `non_dng_matrix_selected_source_variant`, `non_dng_matrix_selected_wp_err_*`, `non_dng_matrix_candidate_count`).
 
 ## What’s missing vs a “full ISP”
 mini-ISP includes a realistic single-frame skeleton, but does not yet include:

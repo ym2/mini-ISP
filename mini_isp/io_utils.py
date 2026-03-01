@@ -466,7 +466,35 @@ def derive_dng_ccm_from_file(path: str) -> Dict[str, Any]:
     return derive_dng_ccm_from_exif_metadata(meta)
 
 
-def derive_non_dng_ccm_from_rawpy_matrix(raw_m: Any) -> Dict[str, Any]:
+def _infer_whitepoint_from_matrix_wb(
+    matrix_xyz_by_cam: np.ndarray,
+    wb_triplet: Optional[Tuple[float, float, float]],
+) -> Tuple[float, float]:
+    if wb_triplet is None:
+        return (float("inf"), float("inf"))
+    wb = np.asarray(wb_triplet, dtype=np.float64).reshape(-1)
+    if wb.size < 3:
+        return (float("inf"), float("inf"))
+    wb = wb[:3]
+    if not np.all(np.isfinite(wb)) or np.any(wb <= 0.0):
+        return (float("inf"), float("inf"))
+
+    response = np.asarray(matrix_xyz_by_cam, dtype=np.float64) @ (1.0 / wb)
+    y = float(response[1])
+    if not np.isfinite(y) or y <= 0.0:
+        return (float("inf"), float("inf"))
+    norm = response / y
+    d50 = np.array([0.96422, 1.0, 0.82521], dtype=np.float64)
+    d65 = np.array([0.95047, 1.0, 1.08883], dtype=np.float64)
+    err_d50 = float(np.sum(np.abs(norm - d50)))
+    err_d65 = float(np.sum(np.abs(norm - d65)))
+    return (err_d50, err_d65)
+
+
+def derive_non_dng_ccm_from_rawpy_matrix(
+    raw_m: Any,
+    wb_gains_rgb: Optional[Tuple[float, float, float]] = None,
+) -> Dict[str, Any]:
     """
     Deterministic non-DNG camera->XYZ extraction from rawpy.rgb_xyz_matrix.
 
@@ -479,37 +507,153 @@ def derive_non_dng_ccm_from_rawpy_matrix(raw_m: Any) -> Dict[str, Any]:
     if not np.all(np.isfinite(m)):
         return {"available": False, "reason": "invalid_rgb_xyz_matrix_nonfinite"}
 
-    matrix_xyz_by_cam: Optional[np.ndarray] = None
-    source = "none"
+    candidate_mats: Dict[str, np.ndarray] = {}
+    candidate_order: list[str] = []
+
+    def _add_candidate(name: str, mat3: np.ndarray) -> None:
+        mat3 = np.asarray(mat3, dtype=np.float32)
+        if (
+            mat3.shape == (3, 3)
+            and np.all(np.isfinite(mat3))
+            and float(np.linalg.norm(mat3)) >= 1e-8
+            and name not in candidate_mats
+        ):
+            candidate_mats[name] = mat3
+            candidate_order.append(name)
+
     try:
         if m.shape == (4, 3):
-            cam3_by_xyz3 = _MERGE_GREEN_SUM_4_TO_3.T @ m
-            matrix_xyz_by_cam = np.linalg.inv(cam3_by_xyz3).astype(np.float32)
-            source = "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv"
+            cam3_by_xyz3_sum = _MERGE_GREEN_SUM_4_TO_3.T @ m
+            try:
+                _add_candidate(
+                    "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv",
+                    np.linalg.inv(cam3_by_xyz3_sum).astype(np.float32),
+                )
+            except np.linalg.LinAlgError:
+                pass
+
+            p_avg = np.array(
+                [[1.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.0, 1.0], [0.0, 0.5, 0.0]],
+                dtype=np.float32,
+            )
+            cam3_by_xyz3_avg = p_avg.T @ m
+            try:
+                _add_candidate(
+                    "rawpy_rgb_xyz_matrix_4x3_mergeg_avg_inv",
+                    np.linalg.inv(cam3_by_xyz3_avg).astype(np.float32),
+                )
+            except np.linalg.LinAlgError:
+                pass
+
+            m_xyz_cam4 = m.T  # 3x4
+            _add_candidate(
+                "rawpy_rgb_xyz_matrix_4x3_t_mergeg_sum",
+                m_xyz_cam4 @ _MERGE_GREEN_SUM_4_TO_3,
+            )
+            _add_candidate(
+                "rawpy_rgb_xyz_matrix_4x3_t_mergeg_avg",
+                m_xyz_cam4 @ p_avg,
+            )
         elif m.shape == (3, 4):
-            cam4_by_xyz3 = m.T
-            cam3_by_xyz3 = _MERGE_GREEN_SUM_4_TO_3.T @ cam4_by_xyz3
-            matrix_xyz_by_cam = np.linalg.inv(cam3_by_xyz3).astype(np.float32)
-            source = "rawpy_rgb_xyz_matrix_3x4_t_mergeg_sum_inv"
+            p_avg = np.array(
+                [[1.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.0, 1.0], [0.0, 0.5, 0.0]],
+                dtype=np.float32,
+            )
+            cam4_by_xyz3 = m.T  # 4x3
+            cam3_by_xyz3_sum = _MERGE_GREEN_SUM_4_TO_3.T @ cam4_by_xyz3
+            cam3_by_xyz3_avg = p_avg.T @ cam4_by_xyz3
+            try:
+                _add_candidate(
+                    "rawpy_rgb_xyz_matrix_3x4_t_mergeg_sum_inv",
+                    np.linalg.inv(cam3_by_xyz3_sum).astype(np.float32),
+                )
+            except np.linalg.LinAlgError:
+                pass
+            try:
+                _add_candidate(
+                    "rawpy_rgb_xyz_matrix_3x4_t_mergeg_avg_inv",
+                    np.linalg.inv(cam3_by_xyz3_avg).astype(np.float32),
+                )
+            except np.linalg.LinAlgError:
+                pass
+
+            _add_candidate(
+                "rawpy_rgb_xyz_matrix_3x4_mergeg_sum",
+                m @ _MERGE_GREEN_SUM_4_TO_3,
+            )
+            _add_candidate(
+                "rawpy_rgb_xyz_matrix_3x4_mergeg_avg",
+                m @ p_avg,
+            )
         elif m.shape == (3, 3):
-            matrix_xyz_by_cam = m.astype(np.float32)
-            source = "rawpy_rgb_xyz_matrix_3x3_as_is"
+            _add_candidate("rawpy_rgb_xyz_matrix_3x3_as_is", m.astype(np.float32))
+            _add_candidate("rawpy_rgb_xyz_matrix_3x3_transposed", m.T.astype(np.float32))
+            try:
+                _add_candidate("rawpy_rgb_xyz_matrix_3x3_inv", np.linalg.inv(m).astype(np.float32))
+            except np.linalg.LinAlgError:
+                pass
         else:
             return {"available": False, "reason": f"unsupported_rgb_xyz_matrix_shape_{list(m.shape)}"}
     except np.linalg.LinAlgError:
         return {"available": False, "reason": "rgb_xyz_matrix_inversion_failed"}
 
-    if matrix_xyz_by_cam is None:
-        return {"available": False, "reason": "missing_non_dng_cam_to_xyz"}
-    if not np.all(np.isfinite(matrix_xyz_by_cam)) or float(np.linalg.norm(matrix_xyz_by_cam)) < 1e-8:
-        return {"available": False, "reason": "invalid_non_dng_cam_to_xyz"}
+    if not candidate_mats:
+        return {"available": False, "reason": "no_usable_rgb_xyz_matrix_candidate"}
+
+    one_wb = (1.0, 1.0, 1.0)
+    wb_ok = wb_gains_rgb is not None and np.all(np.isfinite(np.asarray(wb_gains_rgb, dtype=np.float32)))
+    candidate_variants = ["pre_unwb", "as_is"] if wb_ok else ["as_is"]
+
+    scored: list[Dict[str, Any]] = []
+    for source in candidate_order:
+        mat = candidate_mats[source]
+        for variant in candidate_variants:
+            wb_triplet = wb_gains_rgb if variant == "pre_unwb" else one_wb
+            err_d50, err_d65 = _infer_whitepoint_from_matrix_wb(mat, wb_triplet)
+            min_err = min(err_d50, err_d65)
+            if not np.isfinite(min_err):
+                continue
+            variant_penalty = 0 if variant == "pre_unwb" else 1
+            scored.append(
+                {
+                    "source": source,
+                    "variant": variant,
+                    "matrix": mat,
+                    "wp_err_d50": float(err_d50),
+                    "wp_err_d65": float(err_d65),
+                    "wp_err_min": float(min_err),
+                    "rank_key": (float(min_err), variant_penalty, candidate_order.index(source)),
+                }
+            )
+
+    if not scored:
+        return {"available": False, "reason": "no_finite_whitepoint_candidate"}
+
+    best = min(scored, key=lambda x: x["rank_key"])
+    matrix_xyz_by_cam = np.asarray(best["matrix"], dtype=np.float32)
+
+    candidate_scores: Dict[str, Dict[str, float]] = {}
+    for item in scored:
+        key = f"{item['source']}|{item['variant']}"
+        candidate_scores[key] = {
+            "wp_err_d50": float(item["wp_err_d50"]),
+            "wp_err_d65": float(item["wp_err_d65"]),
+            "wp_err_min": float(item["wp_err_min"]),
+        }
 
     return {
         "available": True,
         "cam_to_xyz_matrix": matrix_xyz_by_cam.tolist(),
-        "cam_to_xyz_source": source,
-        "selected_input_variant": "pre_unwb",
+        "cam_to_xyz_source": str(best["source"]),
+        "selected_input_variant": str(best["variant"]),
         "raw_rgb_xyz_matrix_shape": [int(x) for x in m.shape],
+        "selection_policy": "wp_error_min_det",
+        "selected_source_variant": f"{best['source']}|{best['variant']}",
+        "selected_wp_err_d50": float(best["wp_err_d50"]),
+        "selected_wp_err_d65": float(best["wp_err_d65"]),
+        "selected_wp_err_min": float(best["wp_err_min"]),
+        "candidate_count": int(len(candidate_scores)),
+        "candidate_wp_errors": candidate_scores,
     }
 
 
@@ -560,7 +704,10 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
         )
         wb_gains, wb_source = _select_raw_wb(raw, cfa_pattern, color_desc)
         daylight_wb_gains = _extract_daylight_wb(raw, cfa_pattern, color_desc)
-        non_dng_info = derive_non_dng_ccm_from_rawpy_matrix(getattr(raw, "rgb_xyz_matrix", None))
+        non_dng_info = derive_non_dng_ccm_from_rawpy_matrix(
+            getattr(raw, "rgb_xyz_matrix", None),
+            wb_gains_rgb=wb_gains,
+        )
 
     ccm_info: Dict[str, Any] = {"available": False, "reason": "non_dng_input"}
     if os.path.splitext(path)[1].lower() == ".dng":
@@ -592,6 +739,12 @@ def load_raw_mosaic(path: str, fallback_cfa: str) -> Tuple[np.ndarray, Dict[str,
         meta["non_dng_cam_to_xyz_matrix"] = non_dng_info["cam_to_xyz_matrix"]
         meta["non_dng_cam_to_xyz_source"] = non_dng_info.get("cam_to_xyz_source", "none")
         meta["non_dng_selected_input_variant"] = non_dng_info.get("selected_input_variant", "none")
+        meta["non_dng_cam_to_xyz_selection_policy"] = non_dng_info.get("selection_policy", "unknown")
+        meta["non_dng_cam_to_xyz_selected_source_variant"] = non_dng_info.get("selected_source_variant")
+        meta["non_dng_cam_to_xyz_selected_wp_err_d50"] = non_dng_info.get("selected_wp_err_d50")
+        meta["non_dng_cam_to_xyz_selected_wp_err_d65"] = non_dng_info.get("selected_wp_err_d65")
+        meta["non_dng_cam_to_xyz_selected_wp_err_min"] = non_dng_info.get("selected_wp_err_min")
+        meta["non_dng_cam_to_xyz_candidate_count"] = non_dng_info.get("candidate_count")
         meta["non_dng_xyz_to_working_matrix_d65"] = _XYZ_TO_LIN_SRGB_D65.astype(np.float32).tolist()
         meta["non_dng_xyz_to_working_source_d65"] = "constant_xyz_d65_to_lin_srgb_d65"
         meta["non_dng_xyz_to_working_matrix_d50adapt"] = _xyz_d50_to_lin_srgb_d65().astype(np.float32).tolist()

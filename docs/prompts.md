@@ -1145,10 +1145,38 @@ Validation
 
 ## v0.2-M12 — Non-DNG matrix-source parity refinement
 
-Scope intent
-	•	Refine non-DNG metadata matrix extraction semantics to align with the validated exploration behavior.
-	•	Keep resolver/stage split and deterministic policy hierarchy unchanged.
-	•	Revalidate on representative corpus before any further default-policy tightening.
+### Final prompt
+v0.2-M12 — Non-DNG matrix-source parity refinement
+
+Goal
+	•	Refine non-DNG metadata matrix extraction semantics so camera→XYZ source selection is deterministic and metadata-only.
+	•	Keep resolver/stage split and branch hierarchy from v0.2-M11 unchanged.
+	•	Do not add any reference-image scoring to mini-ISP.
+
+Scope
+	•	Implement deterministic non-DNG matrix-source policy `wp_error_min_det` in loader metadata extraction.
+	•	Build candidate camera→XYZ matrices from `rawpy.rgb_xyz_matrix` shape-aware interpretations (3x3 / 4x3 / 3x4).
+	•	Use metadata-only whitepoint-error minimization to pick:
+	•	selected matrix source
+	•	selected input variant (`pre_unwb` or `as_is`)
+	•	Keep current non-DNG resolver branch rule label:
+	•	`wp_infer_clean_d65_d50_else_daylight_with_outlier_identity`
+	•	Keep outlier fallback branch and threshold behavior deterministic.
+
+Debug / provenance
+	•	Keep existing non-DNG branch provenance fields.
+	•	Add matrix-source provenance fields to CCM debug params:
+	•	`non_dng_matrix_source_policy`
+	•	`non_dng_matrix_selected_source_variant`
+	•	`non_dng_matrix_selected_wp_err_d50`
+	•	`non_dng_matrix_selected_wp_err_d65`
+	•	`non_dng_matrix_selected_wp_err_min`
+	•	`non_dng_matrix_candidate_count`
+
+Validation
+	•	Required non-DNG run set: Nikon D750, Panasonic G6, Nikon D1, Olympus E-M1MarkII.
+	•	Check branch/provenance in `stages/06_ccm/debug.json` for each run.
+	•	Run `pytest -q`.
 
 ---
 

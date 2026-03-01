@@ -57,6 +57,12 @@ def test_resolve_ccm_auto_default_non_dng_prefers_daylight_d65() -> None:
         "non_dng_cam_to_xyz_matrix": m.tolist(),
         "non_dng_cam_to_xyz_source": "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv",
         "non_dng_selected_input_variant": "pre_unwb",
+        "non_dng_cam_to_xyz_selection_policy": "wp_error_min_det",
+        "non_dng_cam_to_xyz_selected_source_variant": "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv|pre_unwb",
+        "non_dng_cam_to_xyz_selected_wp_err_d50": 0.11,
+        "non_dng_cam_to_xyz_selected_wp_err_d65": 0.22,
+        "non_dng_cam_to_xyz_selected_wp_err_min": 0.11,
+        "non_dng_cam_to_xyz_candidate_count": 3,
         "non_dng_xyz_to_working_matrix_d65": identity.tolist(),
         "non_dng_xyz_to_working_source_d65": "constant_xyz_d65_to_lin_srgb_d65",
         "non_dng_xyz_to_working_matrix_d50adapt": (2.0 * identity).tolist(),
@@ -74,6 +80,10 @@ def test_resolve_ccm_auto_default_non_dng_prefers_daylight_d65() -> None:
     assert out["non_dng_meta_selection_reason"] == "high_wp_error_no_outlier_trigger"
     assert out["non_dng_meta_legacy_override_applied"] is False
     assert out["non_dng_meta_outlier_fallback_applied"] is False
+    assert out["non_dng_matrix_source_policy"] == "wp_error_min_det"
+    assert out["non_dng_matrix_selected_source_variant"] == "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv|pre_unwb"
+    assert out["non_dng_matrix_selected_wp_err_min"] == 0.11
+    assert out["non_dng_matrix_candidate_count"] == 3
     expected_cam = np.diag([0.425, 1.0, 0.3]).astype(np.float32)
     assert np.allclose(np.asarray(out["cam_to_xyz_matrix"], dtype=np.float32), expected_cam, atol=1e-6)
     assert np.allclose(np.asarray(out["xyz_to_working_matrix"], dtype=np.float32), identity, atol=1e-6)

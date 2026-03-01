@@ -213,6 +213,12 @@ def load_input_frame(config: Dict[str, Any]) -> Frame:
             "non_dng_cam_to_xyz_matrix": raw_meta.get("non_dng_cam_to_xyz_matrix"),
             "non_dng_cam_to_xyz_source": raw_meta.get("non_dng_cam_to_xyz_source"),
             "non_dng_selected_input_variant": raw_meta.get("non_dng_selected_input_variant"),
+            "non_dng_cam_to_xyz_selection_policy": raw_meta.get("non_dng_cam_to_xyz_selection_policy"),
+            "non_dng_cam_to_xyz_selected_source_variant": raw_meta.get("non_dng_cam_to_xyz_selected_source_variant"),
+            "non_dng_cam_to_xyz_selected_wp_err_d50": raw_meta.get("non_dng_cam_to_xyz_selected_wp_err_d50"),
+            "non_dng_cam_to_xyz_selected_wp_err_d65": raw_meta.get("non_dng_cam_to_xyz_selected_wp_err_d65"),
+            "non_dng_cam_to_xyz_selected_wp_err_min": raw_meta.get("non_dng_cam_to_xyz_selected_wp_err_min"),
+            "non_dng_cam_to_xyz_candidate_count": raw_meta.get("non_dng_cam_to_xyz_candidate_count"),
             "non_dng_xyz_to_working_matrix_d65": raw_meta.get("non_dng_xyz_to_working_matrix_d65"),
             "non_dng_xyz_to_working_source_d65": raw_meta.get("non_dng_xyz_to_working_source_d65"),
             "non_dng_xyz_to_working_matrix_d50adapt": raw_meta.get("non_dng_xyz_to_working_matrix_d50adapt"),
@@ -390,7 +396,7 @@ def _resolve_ccm_stage_params(
     thresh_d65_clean = 0.05
     thresh_d50_clean = 0.04
     thresh_ambiguous = 0.08
-    thresh_outlier_identity = 0.35
+    thresh_outlier_identity = 0.33
 
     outlier_target = np.isfinite(min_err) and (min_err > thresh_outlier_identity)
     outlier_fallback_applied = False
@@ -442,6 +448,12 @@ def _resolve_ccm_stage_params(
         out["non_dng_meta_outlier_confidence_threshold"] = float(thresh_outlier_identity)
         out["non_dng_meta_outlier_confidence_trigger"] = bool(outlier_target)
         out["non_dng_meta_outlier_fallback_applied"] = True
+        out["non_dng_matrix_source_policy"] = str(frame_meta.get("non_dng_cam_to_xyz_selection_policy") or "unknown")
+        out["non_dng_matrix_selected_source_variant"] = frame_meta.get("non_dng_cam_to_xyz_selected_source_variant")
+        out["non_dng_matrix_selected_wp_err_d50"] = frame_meta.get("non_dng_cam_to_xyz_selected_wp_err_d50")
+        out["non_dng_matrix_selected_wp_err_d65"] = frame_meta.get("non_dng_cam_to_xyz_selected_wp_err_d65")
+        out["non_dng_matrix_selected_wp_err_min"] = frame_meta.get("non_dng_cam_to_xyz_selected_wp_err_min")
+        out["non_dng_matrix_candidate_count"] = frame_meta.get("non_dng_cam_to_xyz_candidate_count")
         out["auto_default_applied"] = False
         out["auto_default_reason"] = "non_dng_outlier_identity_fallback"
         return out
@@ -486,6 +498,12 @@ def _resolve_ccm_stage_params(
     out["non_dng_meta_outlier_confidence_threshold"] = float(thresh_outlier_identity)
     out["non_dng_meta_outlier_confidence_trigger"] = bool(outlier_target)
     out["non_dng_meta_outlier_fallback_applied"] = False
+    out["non_dng_matrix_source_policy"] = str(frame_meta.get("non_dng_cam_to_xyz_selection_policy") or "unknown")
+    out["non_dng_matrix_selected_source_variant"] = frame_meta.get("non_dng_cam_to_xyz_selected_source_variant")
+    out["non_dng_matrix_selected_wp_err_d50"] = frame_meta.get("non_dng_cam_to_xyz_selected_wp_err_d50")
+    out["non_dng_matrix_selected_wp_err_d65"] = frame_meta.get("non_dng_cam_to_xyz_selected_wp_err_d65")
+    out["non_dng_matrix_selected_wp_err_min"] = frame_meta.get("non_dng_cam_to_xyz_selected_wp_err_min")
+    out["non_dng_matrix_candidate_count"] = frame_meta.get("non_dng_cam_to_xyz_candidate_count")
     out["auto_default_applied"] = True
     out["auto_default_reason"] = "applied_non_dng_meta_default"
     return out

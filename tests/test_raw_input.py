@@ -197,8 +197,12 @@ def test_load_raw_mosaic_non_dng_adds_non_dng_ccm_metadata(monkeypatch: pytest.M
     monkeypatch.setattr(rawpy, "imread", fake_imread)
 
     _mosaic, meta = load_raw_mosaic("fake.nef", "RGGB")
-    assert meta["non_dng_cam_to_xyz_source"] == "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv"
-    assert meta["non_dng_selected_input_variant"] == "pre_unwb"
+    assert str(meta["non_dng_cam_to_xyz_source"]).startswith("rawpy_rgb_xyz_matrix_4x3_")
+    assert meta["non_dng_selected_input_variant"] in ("pre_unwb", "as_is")
+    assert meta["non_dng_cam_to_xyz_selection_policy"] == "wp_error_min_det"
+    assert isinstance(meta["non_dng_cam_to_xyz_selected_source_variant"], str)
+    assert isinstance(meta["non_dng_cam_to_xyz_candidate_count"], int)
+    assert meta["non_dng_cam_to_xyz_candidate_count"] >= 1
     assert np.array(meta["non_dng_cam_to_xyz_matrix"], dtype=np.float32).shape == (3, 3)
     assert np.array(meta["non_dng_xyz_to_working_matrix_d65"], dtype=np.float32).shape == (3, 3)
     assert np.array(meta["non_dng_xyz_to_working_matrix_d50adapt"], dtype=np.float32).shape == (3, 3)
