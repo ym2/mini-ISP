@@ -185,12 +185,12 @@ Responsibilities:
 - default `xyz_to_working_matrix` is built-in XYZ(D65) → linear sRGB(D65); runner may inject other working transforms (for example D50-adapted paths)
 - support runner-resolved auto-default policy without changing stage order:
   - DNG RAW auto-default path (v0.2-M8)
-  - non-DNG RAW deterministic metadata path (v0.2-M10, policy id `non_dng_meta_default`)
-    - current rule: `wp_infer_clean_d65_d50_else_daylight_with_legacy_override`
+  - non-DNG RAW deterministic metadata path (v0.2-M11, policy id `non_dng_meta_default`)
+    - current rule: `wp_infer_clean_d65_d50_else_daylight_with_outlier_identity`
     - clean D65 -> `selected_input|d65`
     - clean D50 -> `selected_input|d50adapt`
     - ambiguous + daylight WB -> `pre_unwb_daylight|d65`
-    - legacy high-error marker override -> `selected_input|d50adapt`
+    - outlier high-error confidence fallback (`min(wp_err_d50, wp_err_d65) > 0.35`) -> identity (skip auto chain)
     - else fallback -> `pre_unwb_daylight|d65` (or `selected_input|d50adapt` if daylight WB unavailable)
 - record `meta.ccm` and `meta.ccm_mode`
 
@@ -206,6 +206,9 @@ Artifacts:
   - `non_dng_meta_selection_reason`
   - `non_dng_meta_wp_err_d50`
   - `non_dng_meta_wp_err_d65`
+  - `non_dng_meta_outlier_confidence_threshold`
+  - `non_dng_meta_outlier_confidence_trigger`
+  - `non_dng_meta_outlier_fallback_applied`
 
 ---
 

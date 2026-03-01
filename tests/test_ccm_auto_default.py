@@ -46,6 +46,7 @@ def test_resolve_ccm_auto_default_dng_chain_when_matrices_available() -> None:
 
 def test_resolve_ccm_auto_default_non_dng_prefers_daylight_d65() -> None:
     stage_cfg = {}
+    m = np.diag([1.7, 1.0, 0.6]).astype(np.float32)
     identity = np.eye(3, dtype=np.float32)
     frame_meta = {
         "input_kind": "raw",
@@ -53,7 +54,7 @@ def test_resolve_ccm_auto_default_non_dng_prefers_daylight_d65() -> None:
         "source_path": "/tmp/sample.nef",
         "wb_gains": [2.0, 1.0, 0.5],
         "daylight_wb_gains": [4.0, 1.0, 2.0],
-        "non_dng_cam_to_xyz_matrix": identity.tolist(),
+        "non_dng_cam_to_xyz_matrix": m.tolist(),
         "non_dng_cam_to_xyz_source": "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv",
         "non_dng_selected_input_variant": "pre_unwb",
         "non_dng_xyz_to_working_matrix_d65": identity.tolist(),
@@ -66,13 +67,14 @@ def test_resolve_ccm_auto_default_non_dng_prefers_daylight_d65() -> None:
     assert out["auto_default_applied"] is True
     assert out["auto_default_reason"] == "applied_non_dng_meta_default"
     assert out["ccm_source"] == "non_dng_meta_default"
-    assert out["non_dng_meta_rule"] == "wp_infer_clean_d65_d50_else_daylight_with_legacy_override"
+    assert out["non_dng_meta_rule"] == "wp_infer_clean_d65_d50_else_daylight_with_outlier_identity"
     assert out["non_dng_meta_input_variant"] == "pre_unwb_daylight"
     assert out["non_dng_meta_wp_variant"] == "d65"
     assert out["non_dng_meta_branch"] == "high_error_fallback"
-    assert out["non_dng_meta_selection_reason"] == "high_wp_error_non_legacy"
+    assert out["non_dng_meta_selection_reason"] == "high_wp_error_no_outlier_trigger"
     assert out["non_dng_meta_legacy_override_applied"] is False
-    expected_cam = np.diag([0.25, 1.0, 0.5]).astype(np.float32)
+    assert out["non_dng_meta_outlier_fallback_applied"] is False
+    expected_cam = np.diag([0.425, 1.0, 0.3]).astype(np.float32)
     assert np.allclose(np.asarray(out["cam_to_xyz_matrix"], dtype=np.float32), expected_cam, atol=1e-6)
     assert np.allclose(np.asarray(out["xyz_to_working_matrix"], dtype=np.float32), identity, atol=1e-6)
 
@@ -97,13 +99,14 @@ def test_resolve_ccm_auto_default_dng_missing_matrices_skips_with_reason() -> No
 
 def test_resolve_ccm_auto_default_non_dng_fallback_selected_d50adapt() -> None:
     stage_cfg = {}
+    m = np.diag([1.7, 1.0, 0.6]).astype(np.float32)
     identity = np.eye(3, dtype=np.float32)
     frame_meta = {
         "input_kind": "raw",
         "input_ext": ".cr2",
         "source_path": "/tmp/sample.cr2",
         "wb_gains": [2.0, 1.0, 0.5],
-        "non_dng_cam_to_xyz_matrix": identity.tolist(),
+        "non_dng_cam_to_xyz_matrix": m.tolist(),
         "non_dng_cam_to_xyz_source": "rawpy_rgb_xyz_matrix_4x3_mergeg_sum_inv",
         "non_dng_selected_input_variant": "pre_unwb",
         "non_dng_xyz_to_working_matrix_d50adapt": identity.tolist(),
@@ -115,7 +118,7 @@ def test_resolve_ccm_auto_default_non_dng_fallback_selected_d50adapt() -> None:
     assert out["non_dng_meta_input_variant"] == "selected_input"
     assert out["non_dng_meta_wp_variant"] == "d50adapt"
     assert out["non_dng_meta_branch"] == "high_error_fallback"
-    expected_cam = np.diag([0.5, 1.0, 2.0]).astype(np.float32)
+    expected_cam = np.diag([0.85, 1.0, 1.2]).astype(np.float32)
     assert np.allclose(np.asarray(out["cam_to_xyz_matrix"], dtype=np.float32), expected_cam, atol=1e-6)
     assert np.allclose(np.asarray(out["xyz_to_working_matrix"], dtype=np.float32), identity, atol=1e-6)
 
@@ -182,13 +185,13 @@ def test_resolve_ccm_auto_default_non_dng_clean_match_d50_uses_selected_input() 
     assert out["non_dng_meta_branch"] == "clean_match_d50"
 
 
-def test_resolve_ccm_auto_default_non_dng_legacy_override_for_olympus_em1() -> None:
+def test_resolve_ccm_auto_default_non_dng_outlier_identity_fallback_for_olympus_em1() -> None:
     stage_cfg = {}
     identity = np.eye(3, dtype=np.float32)
     frame_meta = {
         "input_kind": "raw",
         "input_ext": ".orf",
-        "source_path": "/tmp/Olympus - E-M1MarkII - 16bit (4_3).ORF",
+        "source_path": "/tmp/sample.orf",
         "wb_gains": [2.0, 1.0, 0.5],
         "daylight_wb_gains": [4.0, 1.0, 2.0],
         "non_dng_cam_to_xyz_matrix": identity.tolist(),
@@ -200,11 +203,46 @@ def test_resolve_ccm_auto_default_non_dng_legacy_override_for_olympus_em1() -> N
         "non_dng_xyz_to_working_source_d50adapt": "constant_xyz_d50_to_lin_srgb_d65",
     }
     out = _resolve_ccm_stage_params(stage_cfg, frame_meta)
-    assert out["non_dng_meta_input_variant"] == "selected_input"
-    assert out["non_dng_meta_wp_variant"] == "d50adapt"
-    assert out["non_dng_meta_branch"] == "legacy_override_selected_d50"
+    assert out.get("mode") is None
+    assert out["auto_default_applied"] is False
+    assert out["auto_default_reason"] == "non_dng_outlier_identity_fallback"
+    assert out["ccm_source"] == "non_dng_outlier_fallback"
+    assert out["non_dng_meta_rule"] == "wp_infer_clean_d65_d50_else_daylight_with_outlier_identity"
+    assert out["non_dng_meta_input_variant"] == "identity"
+    assert out["non_dng_meta_wp_variant"] == "identity"
+    assert out["non_dng_meta_branch"] == "outlier_identity_fallback"
     assert out["non_dng_meta_legacy_override_target"] is True
     assert out["non_dng_meta_legacy_override_applied"] is True
+    assert out["non_dng_meta_outlier_confidence_trigger"] is True
+    assert out["non_dng_meta_outlier_fallback_applied"] is True
+
+
+def test_resolve_ccm_auto_default_non_dng_outlier_identity_fallback_for_nikon_d1() -> None:
+    stage_cfg = {}
+    identity = np.eye(3, dtype=np.float32)
+    frame_meta = {
+        "input_kind": "raw",
+        "input_ext": ".nef",
+        "source_path": "/tmp/sample.nef",
+        "wb_gains": [2.0, 1.0, 0.5],
+        "daylight_wb_gains": [4.0, 1.0, 2.0],
+        "non_dng_cam_to_xyz_matrix": identity.tolist(),
+        "non_dng_cam_to_xyz_source": "rawpy_rgb_xyz_matrix_3x3_as_is",
+        "non_dng_selected_input_variant": "pre_unwb",
+        "non_dng_xyz_to_working_matrix_d65": identity.tolist(),
+        "non_dng_xyz_to_working_source_d65": "constant_xyz_d65_to_lin_srgb_d65",
+        "non_dng_xyz_to_working_matrix_d50adapt": identity.tolist(),
+        "non_dng_xyz_to_working_source_d50adapt": "constant_xyz_d50_to_lin_srgb_d65",
+    }
+    out = _resolve_ccm_stage_params(stage_cfg, frame_meta)
+    assert out.get("mode") is None
+    assert out["auto_default_applied"] is False
+    assert out["auto_default_reason"] == "non_dng_outlier_identity_fallback"
+    assert out["non_dng_meta_branch"] == "outlier_identity_fallback"
+    assert out["non_dng_meta_legacy_override_target"] is True
+    assert out["non_dng_meta_legacy_override_applied"] is True
+    assert out["non_dng_meta_outlier_confidence_trigger"] is True
+    assert out["non_dng_meta_outlier_fallback_applied"] is True
 
 
 def test_resolve_ccm_auto_default_non_dng_ambiguous_daylight_prefer_branch() -> None:

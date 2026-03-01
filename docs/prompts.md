@@ -1100,15 +1100,46 @@ Constraints
 Validation
 	•	Update resolver unit tests for new branch behavior and debug provenance.
 	•	Run representative non-DNG RAW inspections and `pytest -q`.
+	•	Required coverage set:
+	•	clean-match case (for example Nikon D750)
+	•	ambiguous/daylight case (for example Panasonic G6)
+	•	legacy outlier cases (Nikon D1 and Olympus E-M1MarkII)
 
 ---
 
 ## v0.2-M11 — Non-DNG outlier fallback policy
 
-Scope intent
+### Final prompt
+v0.2-M11 — Non-DNG outlier fallback policy
+
+Goal
 	•	Add a pragmatic fallback policy for outlier-class non-DNG RAW cases where metadata branching remains visibly wrong.
 	•	Keep deterministic precedence and provenance explicit in CCM debug params.
 	•	Do not change matrix-source extraction semantics in this milestone.
+
+Scope
+	•	Keep v0.2-M10 non-DNG branch policy as the primary path.
+	•	Add a deterministic outlier fallback branch that can be triggered from metadata confidence only (no image-reference scoring).
+	•	Focus on known outlier class coverage (Nikon D1 and Olympus E-M1MarkII class) while preserving current good cases.
+	•	Use rule label `wp_infer_clean_d65_d50_else_daylight_with_outlier_identity`.
+	•	Remove camera-name hardcoded marker dependency from fallback trigger.
+
+Policy constraints
+	•	No changes to matrix extraction logic in loader.
+	•	No changes to CCM stage math/modes; resolver policy only.
+	•	No stage-order / run-layout / manifest / viewer schema changes.
+
+Debug / provenance
+	•	Record explicit fallback intent and outcome in `stages/<nn>_ccm/debug.json` params.
+	•	Keep existing non-DNG policy fields and add:
+	•	`non_dng_meta_outlier_confidence_threshold`
+	•	`non_dng_meta_outlier_confidence_trigger`
+	•	`non_dng_meta_outlier_fallback_applied`
+
+Validation
+	•	Required non-DNG run set: Nikon D750, Panasonic G6, Nikon D1, Olympus E-M1MarkII.
+	•	Demonstrate no regression on D750/G6 while improving or stabilizing D1/E-M1MarkII behavior.
+	•	Run `pytest -q`.
 
 ---
 

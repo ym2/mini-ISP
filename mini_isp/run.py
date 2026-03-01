@@ -300,7 +300,7 @@ def _resolve_ccm_stage_params(
     - Explicit CCM config (presence of behavior keys) always wins.
     - Otherwise, apply RAW auto-default policy from metadata when available:
       - DNG RAW: v0.2-M8 DNG-tags policy.
-      - non-DNG RAW: v0.2-M10 non_dng_meta_default policy.
+      - non-DNG RAW: v0.2-M11 non_dng_meta_default policy.
     - Non-RAW inputs keep default identity behavior.
     """
     out = dict(stage_config)
@@ -339,7 +339,7 @@ def _resolve_ccm_stage_params(
         out["auto_default_reason"] = "applied_from_dng_tags"
         return out
 
-    # non-DNG RAW policy: non_dng_meta_default (v0.2-M10 deterministic metadata rule)
+    # non-DNG RAW policy: non_dng_meta_default (v0.2-M11 deterministic metadata rule)
     non_dng_cam_to_xyz = frame_meta.get("non_dng_cam_to_xyz_matrix")
     if non_dng_cam_to_xyz is None:
         out["cam_to_xyz_source"] = str(frame_meta.get("non_dng_cam_to_xyz_source") or "none")
@@ -383,11 +383,6 @@ def _resolve_ccm_stage_params(
         err_d65 = float(np.sum(np.abs(norm - d65)))
         return (err_d50, err_d65)
 
-    def _is_legacy_override_target(source_path_value: str) -> bool:
-        source_hint = source_path_value.lower()
-        markers = ("nikon - d1 -", "olympus - e-m1markii -")
-        return any(marker in source_hint for marker in markers)
-
     has_pre_unwb_daylight = (input_variant == "pre_unwb") and (daylight_wb is not None)
     wp_err_d50, wp_err_d65 = _infer_whitepoint_errors(m_base, selected_wb)
     min_err = min(wp_err_d50, wp_err_d65)
@@ -395,9 +390,10 @@ def _resolve_ccm_stage_params(
     thresh_d65_clean = 0.05
     thresh_d50_clean = 0.04
     thresh_ambiguous = 0.08
+    thresh_outlier_identity = 0.35
 
-    legacy_target = _is_legacy_override_target(source_path)
-    legacy_override_applied = False
+    outlier_target = np.isfinite(min_err) and (min_err > thresh_outlier_identity)
+    outlier_fallback_applied = False
     if not np.isfinite(wp_err_d50) or not np.isfinite(wp_err_d65) or wp_err_d50 < 0.0 or wp_err_d65 < 0.0:
         chosen_input_variant = "pre_unwb_daylight" if has_pre_unwb_daylight else "selected_input"
         chosen_wp_variant = "d65" if has_pre_unwb_daylight else "d50adapt"
@@ -418,17 +414,37 @@ def _resolve_ccm_stage_params(
         chosen_wp_variant = "d65"
         non_dng_meta_branch = "ambiguous_daylight_prefer"
         non_dng_meta_reason = "min_wp_err<=0.08"
-    elif legacy_target:
-        chosen_input_variant = "selected_input"
-        chosen_wp_variant = "d50adapt"
-        non_dng_meta_branch = "legacy_override_selected_d50"
-        non_dng_meta_reason = "legacy_case_marker+high_wp_error"
-        legacy_override_applied = True
+    elif outlier_target:
+        chosen_input_variant = "identity"
+        chosen_wp_variant = "identity"
+        non_dng_meta_branch = "outlier_identity_fallback"
+        non_dng_meta_reason = f"min_wp_err>{thresh_outlier_identity:.2f}_identity_fallback"
+        outlier_fallback_applied = True
     else:
         chosen_input_variant = "pre_unwb_daylight" if has_pre_unwb_daylight else "selected_input"
         chosen_wp_variant = "d65" if has_pre_unwb_daylight else "d50adapt"
         non_dng_meta_branch = "high_error_fallback"
-        non_dng_meta_reason = "high_wp_error_non_legacy"
+        non_dng_meta_reason = "high_wp_error_no_outlier_trigger"
+
+    if outlier_fallback_applied:
+        out["cam_to_xyz_source"] = str(frame_meta.get("non_dng_cam_to_xyz_source") or "none")
+        out["xyz_to_working_source"] = "none"
+        out["ccm_source"] = "non_dng_outlier_fallback"
+        out["non_dng_meta_rule"] = "wp_infer_clean_d65_d50_else_daylight_with_outlier_identity"
+        out["non_dng_meta_input_variant"] = chosen_input_variant
+        out["non_dng_meta_wp_variant"] = chosen_wp_variant
+        out["non_dng_meta_branch"] = non_dng_meta_branch
+        out["non_dng_meta_selection_reason"] = non_dng_meta_reason
+        out["non_dng_meta_wp_err_d50"] = float(wp_err_d50)
+        out["non_dng_meta_wp_err_d65"] = float(wp_err_d65)
+        out["non_dng_meta_legacy_override_target"] = bool(outlier_target)
+        out["non_dng_meta_legacy_override_applied"] = bool(outlier_fallback_applied)
+        out["non_dng_meta_outlier_confidence_threshold"] = float(thresh_outlier_identity)
+        out["non_dng_meta_outlier_confidence_trigger"] = bool(outlier_target)
+        out["non_dng_meta_outlier_fallback_applied"] = True
+        out["auto_default_applied"] = False
+        out["auto_default_reason"] = "non_dng_outlier_identity_fallback"
+        return out
 
     wb_for_unwb = selected_wb if chosen_input_variant == "selected_input" else daylight_wb
 
@@ -458,15 +474,18 @@ def _resolve_ccm_stage_params(
     out["cam_to_xyz_source"] = str(frame_meta.get("non_dng_cam_to_xyz_source") or "rawpy_rgb_xyz_matrix_non_dng")
     out["xyz_to_working_source"] = xyz_source
     out["ccm_source"] = "non_dng_meta_default"
-    out["non_dng_meta_rule"] = "wp_infer_clean_d65_d50_else_daylight_with_legacy_override"
+    out["non_dng_meta_rule"] = "wp_infer_clean_d65_d50_else_daylight_with_outlier_identity"
     out["non_dng_meta_input_variant"] = chosen_input_variant
     out["non_dng_meta_wp_variant"] = chosen_wp_variant
     out["non_dng_meta_branch"] = non_dng_meta_branch
     out["non_dng_meta_selection_reason"] = non_dng_meta_reason
     out["non_dng_meta_wp_err_d50"] = float(wp_err_d50)
     out["non_dng_meta_wp_err_d65"] = float(wp_err_d65)
-    out["non_dng_meta_legacy_override_target"] = bool(legacy_target)
-    out["non_dng_meta_legacy_override_applied"] = bool(legacy_override_applied)
+    out["non_dng_meta_legacy_override_target"] = bool(outlier_target)
+    out["non_dng_meta_legacy_override_applied"] = False
+    out["non_dng_meta_outlier_confidence_threshold"] = float(thresh_outlier_identity)
+    out["non_dng_meta_outlier_confidence_trigger"] = bool(outlier_target)
+    out["non_dng_meta_outlier_fallback_applied"] = False
     out["auto_default_applied"] = True
     out["auto_default_reason"] = "applied_non_dng_meta_default"
     return out
