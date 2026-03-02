@@ -134,6 +134,7 @@ body:not(.single-run) .content {
 }
 
 .image-panel,
+.signals-panel,
 .metrics-panel,
 .debug-panel {
   border-radius: var(--radius-lg);
@@ -319,12 +320,17 @@ body:not(.single-run) #preview-b {
   color: var(--muted);
 }
 
+.signals-panel,
 .metrics-panel,
 .debug-panel {
   padding: 13px;
   min-width: 0;
   overflow: auto;
   max-height: 54vh;
+}
+
+body:not(.single-run) .signals-panel {
+  grid-column: 1 / -1;
 }
 
 body:not(.single-run) .metrics-panel {
@@ -335,12 +341,62 @@ body:not(.single-run) .debug-panel {
   grid-column: 2;
 }
 
+body:not(.single-run) #metrics-panel.hidden ~ #debug-panel {
+  grid-column: 1 / -1;
+}
+
 .metrics-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
+}
+
+.signals-table table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.signals-table th,
+.signals-table td {
+  padding: 3px 0;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 0;
+  vertical-align: top;
+}
+
+.signals-table .signal-key {
+  color: var(--text);
+  padding-right: 10px;
+  white-space: nowrap;
+}
+
+.signals-table .signal-value {
+  text-align: right;
+  word-break: break-all;
+}
+
+.signals-table .signals-compare th:nth-child(1),
+.signals-table .signals-compare td:nth-child(1) {
+  width: 20%;
+}
+
+.signals-table .signals-compare th:nth-child(2),
+.signals-table .signals-compare td:nth-child(2),
+.signals-table .signals-compare th:nth-child(3),
+.signals-table .signals-compare td:nth-child(3) {
+  width: 30%;
+}
+
+.signals-table .signals-compare th:nth-child(4),
+.signals-table .signals-compare td:nth-child(4) {
+  width: 20%;
 }
 
 .metrics-grid,
@@ -391,6 +447,9 @@ body:not(.single-run) .debug-panel {
   padding: 10px;
   font-size: 11px;
   line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .single-run .metrics-grid,
@@ -419,6 +478,23 @@ body:not(.single-run) .debug-panel {
 
 .hidden {
   display: none;
+}
+
+@media (max-width: 1200px) {
+  body:not(.single-run) .side-column {
+    grid-template-columns: 1fr;
+  }
+
+  body:not(.single-run) .signals-panel,
+  body:not(.single-run) .metrics-panel,
+  body:not(.single-run) .debug-panel {
+    grid-column: 1;
+  }
+
+  body:not(.single-run) .metrics-grid,
+  body:not(.single-run) .debug-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 1024px) {

@@ -27,6 +27,8 @@ const diagnosticsPanel = document.getElementById("diagnostics-panel");
 const diagnosticsControls = document.getElementById("diagnostics-controls");
 const diagnosticsStatus = document.getElementById("diagnostics-status");
 const metricsToggle = document.getElementById("metrics-toggle");
+const signalsPanel = document.getElementById("signals-panel");
+const signalsTable = document.getElementById("signals-table");
 
 let manifest = null;
 let manifestB = null;
@@ -34,15 +36,97 @@ let compareBundle = null;
 let compareStages = null;
 let compareRunDirs = null;
 let activeIndex = 0;
+let activeStageName = "";
 let useRoi = false;
 let diagMode = "preview";
 let metricsRequestId = 0;
 let diagRequestId = 0;
+let debugRequestId = 0;
 let diagAvailability = {};
 let showAllMetrics = false;
 let metricsCache = { a: null, b: null };
+let diffMetricsCache = {};
+let debugCache = { a: null, b: null };
 
 const METRICS_DEFAULT_KEYS = ["luma_mean", "clip_pct", "p99", "max", "min", "psnr"];
+const SIGNAL_SPECS = {
+  __common: [
+    { label: "luma_mean", source: "metrics", path: "luma_mean" },
+    { label: "clip_pct", source: "metrics", path: "clip_pct" },
+    { label: "p99", source: "metrics", path: "p99" },
+  ],
+  raw_norm: [
+    { label: "raw_min", source: "debug", path: "metrics.min" },
+    { label: "raw_max", source: "debug", path: "metrics.max" },
+    { label: "dtype", source: "debug", path: "metrics.dtype" },
+  ],
+  dpc: [
+    { label: "n_fixed", source: "debug", path: "metrics.n_fixed" },
+    { label: "threshold", source: "debug", path: "metrics.threshold" },
+    { label: "neighbor_policy", source: "debug", path: "metrics.neighbor_policy" },
+  ],
+  lsc: [
+    { label: "gain_mean", source: "debug", path: "metrics.gain_mean" },
+    { label: "gain_max", source: "debug", path: "metrics.gain_max" },
+    { label: "k", source: "debug", path: "metrics.k" },
+  ],
+  wb_gains: [
+    { label: "wb_mode", source: "debug", path: "params.wb_mode" },
+    { label: "wb_source", source: "debug", path: "params.wb_source" },
+    { label: "wb_gains", source: "debug", path: "params.wb_gains" },
+  ],
+  demosaic: [
+    { label: "method", source: "debug", path: "params.method" },
+    { label: "clip_applied", source: "debug", path: "metrics.clip_applied" },
+  ],
+  denoise: [
+    { label: "method", source: "debug", path: "params.method" },
+    { label: "sigma", source: "debug", path: "params.sigma" },
+    { label: "sigma_y", source: "debug", path: "params.sigma_y" },
+    { label: "sigma_c", source: "debug", path: "params.sigma_c" },
+  ],
+  ccm: [
+    { label: "mode", source: "debug", path: "params.mode" },
+    { label: "ccm_source", source: "debug", path: "params.ccm_source" },
+    { label: "meta_rule", source: "debug", path: "params.non_dng_meta_rule" },
+    { label: "meta_branch", source: "debug", path: "params.non_dng_meta_branch" },
+    { label: "wp_err_d50", source: "debug", path: "params.non_dng_meta_wp_err_d50" },
+    { label: "wp_err_d65", source: "debug", path: "params.non_dng_meta_wp_err_d65" },
+    { label: "outlier_trigger", source: "debug", path: "params.non_dng_meta_outlier_confidence_trigger" },
+    { label: "matrix_policy", source: "debug", path: "params.non_dng_matrix_source_policy" },
+  ],
+  stats_3a: [
+    { label: "ae_mean", source: "debug", path: "metrics.stats_3a.ae.mean" },
+    { label: "ae_clip_pct", source: "debug", path: "metrics.stats_3a.ae.clip_pct" },
+    { label: "af_tenengrad", source: "debug", path: "metrics.stats_3a.af.tenengrad" },
+  ],
+  tone: [
+    { label: "method", source: "debug", path: "params.method" },
+    { label: "exposure", source: "debug", path: "params.exposure" },
+    { label: "white_point", source: "debug", path: "params.white_point" },
+    { label: "gamma", source: "debug", path: "params.gamma" },
+  ],
+  color_adjust: [
+    { label: "method", source: "debug", path: "params.method" },
+    { label: "sat_scale", source: "debug", path: "params.sat_scale" },
+  ],
+  sharpen: [
+    { label: "method", source: "debug", path: "params.method" },
+    { label: "sigma", source: "debug", path: "params.sigma" },
+    { label: "amount", source: "debug", path: "params.amount" },
+    { label: "threshold", source: "debug", path: "params.threshold" },
+    { label: "luma_only", source: "debug", path: "params.luma_only" },
+  ],
+  oetf_encode: [
+    { label: "oetf", source: "debug", path: "params.oetf" },
+    { label: "bit_depth", source: "debug", path: "metrics.bit_depth" },
+  ],
+  __single_diff: [
+    { label: "stage_l1", source: "diff", path: "l1" },
+    { label: "stage_l2", source: "diff", path: "l2" },
+    { label: "stage_psnr", source: "diff", path: "psnr" },
+  ],
+};
 
 function getQueryParam(name) {
   const params = new URLSearchParams(window.location.search);
@@ -158,6 +242,10 @@ function setActiveStage(index) {
   const stage = compareStages ? compareStages[index] : { a: manifest.stages[index] };
   const stageA = stage.a;
   const stageB = stage.b;
+  activeStageName = (stageA && stageA.name) || (stageB && stageB.name) || "";
+  debugCache = { a: null, b: null };
+  diffMetricsCache = {};
+  setSignalsLoadingState();
   stageName.textContent =
     (stageA && (stageA.display_name || stageA.name)) ||
     (stageB && (stageB.display_name || stageB.name)) ||
@@ -233,42 +321,36 @@ function updatePreview(stageA, stageB) {
 }
 
 function loadDebug(pathA, pathB) {
+  const requestId = ++debugRequestId;
   if (!compareBundle) {
-    fetch("../" + pathA)
-      .then((resp) => resp.json())
-      .then((data) => {
-        debugPanelA.textContent = JSON.stringify(data, null, 2);
-        debugPanelB.textContent = "";
-      })
-      .catch(() => {
-        debugPanelA.textContent = "{}";
-      });
+    const singlePath = pathA ? "../" + pathA : null;
+    const loadA = singlePath ? fetch(singlePath).then((resp) => resp.json()).catch(() => null) : Promise.resolve(null);
+    Promise.all([loadA]).then(([dataA]) => {
+      if (requestId !== debugRequestId) return;
+      debugCache = { a: dataA, b: null };
+      debugPanelA.textContent = JSON.stringify(dataA || {}, null, 2);
+      debugPanelB.textContent = "";
+      renderStageSignals();
+    });
     return;
   }
-  if (pathA) {
-    fetch(toAbsolutePath(`${compareRunDirs.a}/${pathA}`))
-      .then((resp) => resp.json())
-      .then((data) => {
-        debugPanelA.textContent = JSON.stringify(data, null, 2);
-      })
-      .catch(() => {
-        debugPanelA.textContent = "{}";
-      });
-  } else {
-    debugPanelA.textContent = "{}";
-  }
-  if (pathB) {
-    fetch(toAbsolutePath(`${compareRunDirs.b}/${pathB}`))
-      .then((resp) => resp.json())
-      .then((data) => {
-        debugPanelB.textContent = JSON.stringify(data, null, 2);
-      })
-      .catch(() => {
-        debugPanelB.textContent = "{}";
-      });
-  } else {
-    debugPanelB.textContent = "{}";
-  }
+  const loadA = pathA
+    ? fetch(toAbsolutePath(`${compareRunDirs.a}/${pathA}`))
+        .then((resp) => resp.json())
+        .catch(() => null)
+    : Promise.resolve(null);
+  const loadB = pathB
+    ? fetch(toAbsolutePath(`${compareRunDirs.b}/${pathB}`))
+        .then((resp) => resp.json())
+        .catch(() => null)
+    : Promise.resolve(null);
+  Promise.all([loadA, loadB]).then(([dataA, dataB]) => {
+    if (requestId !== debugRequestId) return;
+    debugCache = { a: dataA, b: dataB };
+    debugPanelA.textContent = JSON.stringify(dataA || {}, null, 2);
+    debugPanelB.textContent = JSON.stringify(dataB || {}, null, 2);
+    renderStageSignals();
+  });
 }
 
 function toggleDebugPanel() {
@@ -381,6 +463,48 @@ function formatMetricValue(value) {
   return value.toFixed(4);
 }
 
+function getNestedValue(obj, path) {
+  if (!obj || !path) return undefined;
+  return path.split(".").reduce((acc, key) => {
+    if (acc && Object.prototype.hasOwnProperty.call(acc, key)) {
+      return acc[key];
+    }
+    return undefined;
+  }, obj);
+}
+
+function hasDisplayValue(value) {
+  return value !== undefined && value !== null;
+}
+
+function isFiniteNumber(value) {
+  return typeof value === "number" && isFinite(value);
+}
+
+function formatSignalValue(value) {
+  if (!hasDisplayValue(value)) return "N/A";
+  if (isFiniteNumber(value)) return formatMetricValue(value);
+  if (Array.isArray(value)) {
+    return (
+      "[" +
+      value
+        .map((item) => (isFiniteNumber(item) ? formatMetricValue(item) : String(item)))
+        .join(", ") +
+      "]"
+    );
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function signalSourceObject(source, side) {
+  if (source === "metrics") return side === "b" ? metricsCache.b : metricsCache.a;
+  if (source === "debug") return side === "b" ? debugCache.b : debugCache.a;
+  if (source === "diff") return diffMetricsCache;
+  return null;
+}
+
 function renderMetricsTable(container, data, keys, emptyLabel) {
   if (!data || !keys || keys.length === 0) {
     container.textContent = `${emptyLabel}: N/A`;
@@ -457,9 +581,11 @@ function updateMetrics(stageA, stageB) {
       const metricsBData = extractNumericMetrics(dataB);
       metricsCache = { a: metricsAData, b: metricsBData };
       const diffMetrics = extractNumericMetrics(diffData);
+      diffMetricsCache = diffMetrics;
       const diffKeys = Object.keys(diffMetrics).sort();
       updateMetricsPanelVisibility(metricsAData, metricsBData, diffKeys);
       renderMetricsPanels();
+      renderStageSignals();
       if (diffKeys.length === 0) {
         diffMetricsSection.classList.add("hidden");
       } else {
@@ -492,6 +618,82 @@ function renderMetricsPanels() {
   }
   metricsToggle.textContent = showAllMetrics ? "Show subset" : "Show all";
   metricsToggle.classList.toggle("active", showAllMetrics);
+}
+
+function setSignalsLoadingState() {
+  if (!signalsTable) return;
+  signalsTable.textContent = "Signals: loading...";
+}
+
+function buildSignalRows() {
+  const stageSpecs = SIGNAL_SPECS[activeStageName] || [];
+  const specs = [...SIGNAL_SPECS.__common, ...stageSpecs];
+  if (!compareBundle) {
+    const withDiff =
+      diffMetricsCache && Object.keys(diffMetricsCache).length > 0 ? [...specs, ...SIGNAL_SPECS.__single_diff] : specs;
+    return withDiff
+      .map((spec) => {
+        const value = getNestedValue(signalSourceObject(spec.source, "a"), spec.path);
+        return { label: spec.label, value };
+      })
+      .filter((row) => hasDisplayValue(row.value));
+  }
+
+  return specs
+    .map((spec) => {
+      const sourceA = signalSourceObject(spec.source, "a");
+      const sourceB = signalSourceObject(spec.source, "b");
+      const valueA = getNestedValue(sourceA, spec.path);
+      const valueB = getNestedValue(sourceB, spec.path);
+      let delta = null;
+      if (isFiniteNumber(valueA) && isFiniteNumber(valueB)) {
+        delta = valueB - valueA;
+      }
+      return { label: spec.label, valueA, valueB, delta };
+    })
+    .filter((row) => hasDisplayValue(row.valueA) || hasDisplayValue(row.valueB));
+}
+
+function renderSignalsSingle(rows) {
+  if (rows.length === 0) {
+    signalsTable.textContent = "Signals: N/A";
+    return;
+  }
+  const body = rows
+    .map(
+      (row) =>
+        `<tr><td class="signal-key">${row.label}</td><td class="signal-value">${formatSignalValue(row.value)}</td></tr>`
+    )
+    .join("");
+  signalsTable.innerHTML = `<table class="signals-single"><tbody>${body}</tbody></table>`;
+}
+
+function renderSignalsCompare(rows) {
+  if (rows.length === 0) {
+    signalsTable.textContent = "Signals: N/A";
+    return;
+  }
+  const header =
+    "<thead><tr><th class=\"signal-key\">signal</th><th class=\"signal-value\">A</th><th class=\"signal-value\">B</th><th class=\"signal-value\">Δ(B-A)</th></tr></thead>";
+  const body = rows
+    .map((row) => {
+      const deltaText = hasDisplayValue(row.delta)
+        ? `${row.delta >= 0 ? "+" : ""}${formatMetricValue(row.delta)}`
+        : "N/A";
+      return `<tr><td class="signal-key">${row.label}</td><td class="signal-value">${formatSignalValue(row.valueA)}</td><td class="signal-value">${formatSignalValue(row.valueB)}</td><td class="signal-value">${deltaText}</td></tr>`;
+    })
+    .join("");
+  signalsTable.innerHTML = `<table class="signals-compare">${header}<tbody>${body}</tbody></table>`;
+}
+
+function renderStageSignals() {
+  if (!signalsPanel || !signalsTable) return;
+  const rows = buildSignalRows();
+  if (compareBundle) {
+    renderSignalsCompare(rows);
+  } else {
+    renderSignalsSingle(rows);
+  }
 }
 
 function checkImage(path) {

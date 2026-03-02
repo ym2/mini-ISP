@@ -1314,7 +1314,56 @@ Deliverables
 
 ---
 
-## v0.3-M4 — HDR-readiness hooks
+## v0.3-M4 — Viewer signal curation (metrics/params)
+
+### Final prompt
+v0.3-M4 — Viewer signal curation (metrics/params)
+
+Critique and upgrade what the viewer surfaces so stage decisions are based on meaningful signals, not just raw JSON dumps.
+
+Goal
+	•	Audit currently surfaced metrics/parameters and curate a stage-aware signal set for single/compare review.
+	•	Use external validation findings as prioritization input (what signals matter), while keeping `mini-ISP` production viewer metadata-only and deterministic.
+
+Scope
+	•	Viewer-first implementation in `mini_isp/viewer_assets/index.html`, `app.js`, `styles.css`.
+	•	Allow minimal stage debug-field cleanup only when necessary for consistency/readability.
+	•	No build tooling or heavy dependencies.
+
+Requirements
+	•	Add a curated “stage signals” presentation in viewer (single + compare), while keeping raw Debug JSON available.
+	•	Support stage-aware key selection/order from:
+	•	`extra/metrics.json` + `extra/diff_metrics.json`
+	•	selected fields from `debug.json` (`params` and numeric `metrics`, including nested paths)
+	•	Compare mode:
+	•	show A/B values side-by-side
+	•	show numeric deltas where applicable
+	•	keep graceful N/A behavior for missing fields on either side
+	•	Include high-value provenance signals for CCM/non-DNG policy review (for example source/rule/branch/wp-error/outlier-trigger fields) when present.
+	•	Do not make production runtime depend on reference-image metrics from external validation (for example absolute reference-image metrics or DeltaE gate outcomes).
+	•	Preserve existing viewer interactions and toggles (stage navigation, compare sync, diagnostics, ROI, metrics subset/all, debug show/hide).
+
+Compatibility constraints
+	•	No run-folder layout changes.
+	•	No `manifest.json` schema changes.
+	•	No artifact-path contract changes.
+
+Validation
+	•	Manual review on representative runs:
+	•	single PNG run (metrics on)
+	•	compare PNG run (metrics on)
+	•	non-DNG RAW run(s) that expose deterministic CCM provenance fields
+	•	`pytest -q` must pass.
+
+Deliverables
+	•	`python -m pytest -q`
+	•	One short audit note in docs describing selected surfaced signals and rationale.
+	•	One single-run viewer URL example.
+	•	One compare-mode viewer URL example.
+
+---
+
+## v0.3-M5 — HDR-readiness hooks
 
 Scope intent
 	•	Add HDR-readiness hooks in `tone` with deterministic, parameterized controls.

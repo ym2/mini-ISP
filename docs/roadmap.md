@@ -128,7 +128,14 @@ Notes:
   - Keep compatibility unchanged: no run-folder layout, `manifest.json`, or artifact-path changes.
   - Done when: single/compare with debug hidden/shown across both breakpoints are manually verified with no regressions.
 
-- **M4 — HDR-readiness hooks**
+- **M4 — Viewer signal curation (metrics/params)**
+  - Audit currently surfaced viewer metrics and stage debug parameters, then define a concise, stage-aware signal set for decision-making in both single and compare modes.
+  - Surface the curated signals in viewer while preserving raw Debug JSON access and existing interactions/toggles.
+  - Keep production behavior metadata-only and deterministic; use external validation findings only to prioritize what to surface, not as runtime decision inputs.
+  - Keep compatibility unchanged: no run-folder layout, `manifest.json`, or artifact-path changes.
+  - Done when: curated signals are visible and useful on representative PNG + RAW runs (including non-DNG CCM provenance cases), with no viewer regressions.
+
+- **M5 — HDR-readiness hooks**
   - Add HDR-readiness hooks in `tone`: scene-referred options, highlight rolloff controls, and a simple “DRC profile” parameter set (e.g., `tone.profile: standard|hdr_soft|hdr_strong`).
   - Keep the pipeline single-frame and deterministic; no multi-frame or AI here—just parameterized classical tone/DRC that can later be driven by multi-frame/AI logic.
   - Keep run-folder layout and `manifest.json` schema unchanged; all changes must be measurable via A/B comparison and existing diagnostics.
