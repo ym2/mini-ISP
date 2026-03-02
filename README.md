@@ -10,6 +10,7 @@ mini-ISP is a compact, modular ISP pipeline you can run on RAW or PNG bootstrap 
 - **Static viewer**: step through stages; view preview/ROI/debug/timing; supports **single-run** and **A/B compare** modes.
 - **Diagnostics/metrics surfaced in viewer**: metrics tables and diagnostics toggles when outputs exist.
 - **Optional diagnostics/metrics outputs**: additive files under `stages/<nn>_<name>/extra/` (no schema breaks).
+- **Viewer layout (desktop-first)**: refreshed arrangement for single/compare review workflows, with graceful responsive fallback at narrower viewports.
 - **Config + CLI overrides**: YAML config plus `--set KEY=VALUE` overrides and flags to enable metrics/diagnostics.
 - **Minimal dependencies**: NumPy + Pillow/PyYAML; optional RAW support via `rawpy`.
 
@@ -179,8 +180,6 @@ Enable metrics and diagnostics outputs (files are written under `stages/.../extr
 ```bash
 python -m mini_isp.run --input data/sample.png --out runs --pipeline_mode classic --name metrics_demo   --enable-metrics --enable-diagnostics
 ```
-
-Viewer usage: the Metrics panel and Diagnostics toggles appear when these files exist. The Metrics panel defaults to a small subset and includes a “Show all” toggle for the full list.
 
 ## Tone (parametric Reinhard)
 Tune Reinhard with `--set` overrides:

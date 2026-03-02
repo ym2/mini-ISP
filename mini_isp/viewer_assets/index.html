@@ -12,9 +12,11 @@
       <div id="run-title" class="subtitle"></div>
     </header>
     <main>
-      <aside>
+      <aside class="sidebar">
         <div class="panel-header">Stages</div>
-        <ul id="stage-list"></ul>
+        <div class="stage-list-wrap">
+          <ul id="stage-list"></ul>
+        </div>
       </aside>
       <section class="content">
         <div class="image-panel">
@@ -51,34 +53,38 @@
           </div>
           <div id="timing-delta" class="timing timing-delta"></div>
         </div>
-        <div id="metrics-panel" class="metrics-panel">
-          <div class="metrics-header">
-            <div class="panel-header">Metrics</div>
-            <button id="metrics-toggle" class="metrics-toggle">Show all</button>
+        <div class="side-column">
+          <div id="metrics-panel" class="metrics-panel">
+            <div class="metrics-header">
+              <div class="panel-header">Metrics</div>
+              <button id="metrics-toggle" class="metrics-toggle">Show all</button>
+            </div>
+            <div class="metrics-grid">
+              <div class="metrics-card">
+                <div class="compare-label" id="metrics-label-a">A</div>
+                <div id="metrics-a" class="metrics-table">Metrics: N/A</div>
+              </div>
+              <div class="metrics-card">
+                <div class="compare-label" id="metrics-label-b">B</div>
+                <div id="metrics-b" class="metrics-table">Metrics: N/A</div>
+              </div>
+            </div>
+            <div id="diff-metrics-section">
+              <div class="panel-header">Diff metrics</div>
+              <div id="diff-metrics" class="metrics-table">Diff metrics: N/A</div>
+            </div>
           </div>
-          <div class="metrics-grid">
-            <div class="metrics-card">
-              <div class="compare-label" id="metrics-label-a">A</div>
-              <div id="metrics-a" class="metrics-table">Metrics: N/A</div>
-            </div>
-            <div class="metrics-card">
-              <div class="compare-label" id="metrics-label-b">B</div>
-              <div id="metrics-b" class="metrics-table">Metrics: N/A</div>
-            </div>
-          </div>
-          <div class="panel-header">Diff metrics</div>
-          <div id="diff-metrics" class="metrics-table">Diff metrics: N/A</div>
-        </div>
-        <div id="debug-panel" class="debug-panel hidden">
-          <div class="panel-header">Debug</div>
-          <div class="debug-grid">
-            <div class="debug-card">
-              <div class="compare-label" id="debug-label-a">A</div>
-              <pre id="debug-a" class="debug"></pre>
-            </div>
-            <div class="debug-card">
-              <div class="compare-label" id="debug-label-b">B</div>
-              <pre id="debug-b" class="debug"></pre>
+          <div id="debug-panel" class="debug-panel hidden">
+            <div class="panel-header">Debug</div>
+            <div class="debug-grid">
+              <div class="debug-card">
+                <div class="compare-label" id="debug-label-a">A</div>
+                <pre id="debug-a" class="debug"></pre>
+              </div>
+              <div class="debug-card">
+                <div class="compare-label" id="debug-label-b">B</div>
+                <pre id="debug-b" class="debug"></pre>
+              </div>
             </div>
           </div>
         </div>

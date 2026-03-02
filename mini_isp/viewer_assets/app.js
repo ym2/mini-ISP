@@ -22,6 +22,8 @@ const metricsLabelB = document.getElementById("metrics-label-b");
 const metricsPanelA = document.getElementById("metrics-a");
 const metricsPanelB = document.getElementById("metrics-b");
 const diffMetricsPanel = document.getElementById("diff-metrics");
+const diffMetricsSection = document.getElementById("diff-metrics-section");
+const diagnosticsPanel = document.getElementById("diagnostics-panel");
 const diagnosticsControls = document.getElementById("diagnostics-controls");
 const diagnosticsStatus = document.getElementById("diagnostics-status");
 const metricsToggle = document.getElementById("metrics-toggle");
@@ -92,6 +94,22 @@ function loadManifests() {
   });
 }
 
+function normalizeCompareLabel(label, side) {
+  const raw = String(label || "").trim();
+  if (!raw) return side;
+  const withoutPrefix = raw.replace(new RegExp(`^${side}\\s*[:\\-]?\\s*`, "i"), "").trim();
+  return withoutPrefix || side;
+}
+
+function buildCompareSubtitle(bundle) {
+  const variantA = normalizeCompareLabel(bundle && bundle.a ? bundle.a.label : "", "A");
+  const variantB = normalizeCompareLabel(bundle && bundle.b ? bundle.b.label : "", "B");
+  if (variantA === "A" && variantB === "B") {
+    return "Compare";
+  }
+  return `Compare: ${variantA} vs ${variantB}`;
+}
+
 function renderStageList() {
   stageList.innerHTML = "";
   const stages = compareStages || manifest.stages;
@@ -114,16 +132,16 @@ function renderStageList() {
     stageList.appendChild(li);
   });
   if (compareBundle) {
-    runTitle.textContent = compareBundle.title || "Compare runs";
-    labelA.textContent = compareBundle.a.label || "A";
-    labelB.textContent = compareBundle.b.label || "B";
+    runTitle.textContent = buildCompareSubtitle(compareBundle);
+    labelA.textContent = "A";
+    labelB.textContent = "B";
     debugLabelA.textContent = labelA.textContent;
     debugLabelB.textContent = labelB.textContent;
     metricsLabelA.textContent = labelA.textContent;
     metricsLabelB.textContent = labelB.textContent;
     document.body.classList.remove("single-run");
   } else {
-    runTitle.textContent = manifest.title || manifest.run_id;
+    runTitle.textContent = "Single run";
     labelA.textContent = "Run";
     labelB.textContent = "";
     debugLabelA.textContent = labelA.textContent;
@@ -438,12 +456,28 @@ function updateMetrics(stageA, stageB) {
       const metricsAData = extractNumericMetrics(dataA);
       const metricsBData = extractNumericMetrics(dataB);
       metricsCache = { a: metricsAData, b: metricsBData };
-      renderMetricsPanels();
       const diffMetrics = extractNumericMetrics(diffData);
       const diffKeys = Object.keys(diffMetrics).sort();
-      renderMetricsTable(diffMetricsPanel, diffMetrics, diffKeys, "Diff metrics");
+      updateMetricsPanelVisibility(metricsAData, metricsBData, diffKeys);
+      renderMetricsPanels();
+      if (diffKeys.length === 0) {
+        diffMetricsSection.classList.add("hidden");
+      } else {
+        diffMetricsSection.classList.remove("hidden");
+        renderMetricsTable(diffMetricsPanel, diffMetrics, diffKeys, "Diff metrics");
+      }
     }
   );
+}
+
+function updateMetricsPanelVisibility(metricsAData, metricsBData, diffKeys) {
+  const hasA = Object.keys(metricsAData || {}).length > 0;
+  const hasB = Object.keys(metricsBData || {}).length > 0;
+  const hasDiff = (diffKeys || []).length > 0;
+  const showPanel = compareBundle ? hasA || hasB || hasDiff : hasA;
+  const metricsPanel = document.getElementById("metrics-panel");
+  if (!metricsPanel) return;
+  metricsPanel.classList.toggle("hidden", !showPanel);
 }
 
 function renderMetricsPanels() {
@@ -546,6 +580,7 @@ function updateDiagnosticsStatus(availability) {
     const info = availability[key];
     return compareBundle ? info && (info.a || info.b) : info && info.a;
   });
+  diagnosticsPanel.classList.toggle("hidden", !anyAvailable);
   if (!anyAvailable) {
     diagnosticsStatus.textContent = "Diagnostics: N/A";
     return;
@@ -554,7 +589,8 @@ function updateDiagnosticsStatus(availability) {
     diagnosticsStatus.textContent = "Diagnostics: Preview";
     return;
   }
-  const label = diagMode.replace("_", " ");
+  const activeButton = diagnosticsControls.querySelector(`button[data-diag="${diagMode}"]`);
+  const label = activeButton ? activeButton.textContent.trim() : diagMode.replace("_", " ");
   diagnosticsStatus.textContent = `Diagnostics: ${label}`;
 }
 

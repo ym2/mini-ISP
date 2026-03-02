@@ -1269,3 +1269,54 @@ Deliverables
 	•	python -m pytest -q
 	•	One scene-pack run using mini_isp.tools.scene_pack + --set overrides comparing baseline vs tuned tone.method=reinhard across a small set of scenes; tuned config should show consistent metric + visual improvements with no regressions in dark regions or skin tones.
 	•	(Optional, but recommended): two mini_isp.run calls on a representative single scene (baseline vs tuned Reinhard) and the corresponding viewer URLs, to manually inspect tone behavior with the updated metrics panel.
+
+---
+
+## v0.3-M3 — Viewer layout modernization (single/compare parity)
+
+### Final prompt
+v0.3-M3 — Viewer layout modernization (single/compare parity)
+
+Refresh viewer page arrangement for readability and operator efficiency while preserving all existing behavior in both single and compare modes.
+
+Scope
+	•	Viewer-only change: `mini_isp/viewer_assets/index.html`, `app.js`, `styles.css`.
+	•	No build tooling or dependencies.
+	•	No schema/layout contract changes to runs, `manifest.json`, or stage artifacts.
+
+State coverage requirement
+	•	The updated UI must remain correct across current layout/state combinations:
+	•	single mode + debug hidden
+	•	single mode + debug shown
+	•	compare mode + debug hidden
+	•	compare mode + debug shown
+	•	responsive fallback views at current breakpoints (`<=1024`, `<=960`) for both modes
+	•	diagnostics modes (`preview`, `false_color`, `zipper`, `halo`) and ROI toggle behavior when allowed
+	•	metrics panel subset/all toggle behavior
+
+Design constraints
+	•	Desktop/laptop is primary target for mini-ISP review workflow; mobile is graceful fallback (not primary workflow optimization).
+	•	Keep interactions deterministic and robust:
+	•	stage selection and keyboard navigation
+	•	compare-stage matching and side labels
+	•	diagnostics availability probing + fallback to `extra/`
+	•	metrics/diff metrics loading with missing-file N/A behavior
+	•	debug JSON loading in both modes
+
+Validation
+	•	Manual verification checklist covering the state coverage items above with at least one single-run manifest and one compare bundle.
+	•	`pytest -q` must continue to pass.
+
+Deliverables
+	•	`python -m pytest -q`
+	•	One single-run viewer URL example.
+	•	One compare-mode viewer URL example.
+
+---
+
+## v0.3-M4 — HDR-readiness hooks
+
+Scope intent
+	•	Add HDR-readiness hooks in `tone` with deterministic, parameterized controls.
+	•	Keep run layout and schema compatibility unchanged.
+	•	Evaluate via existing compare + metrics/diagnostics flow.

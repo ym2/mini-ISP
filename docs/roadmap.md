@@ -102,7 +102,13 @@ Notes:
   - In the viewer metrics panel, show a small **default** subset of key metrics (e.g., luma_mean, clip_pct, p99, PSNR when available) and provide a simple “Show all metrics” toggle that expands to the full metrics set, remaining robust if additional metrics are present.
   - Done when: A/B comparisons on a small scene pack show consistent improvement (metrics + visual inspection) with no regressions in dark regions or skin tones.
 
-- **M3 — HDR-readiness hooks**
+- **M3 — Viewer layout modernization (single/compare parity)**
+  - Refresh viewer layout for faster scanning in both `single` and `compare` modes (desktop-first, responsive fallback at `<=1024` and `<=960`).
+  - Preserve existing interactions and toggles: stage switching, compare sync, ROI, diagnostics modes, metrics subset/all, and debug show/hide.
+  - Keep compatibility unchanged: no run-folder layout, `manifest.json`, or artifact-path changes.
+  - Done when: single/compare with debug hidden/shown across both breakpoints are manually verified with no regressions.
+
+- **M4 — HDR-readiness hooks**
   - Add HDR-readiness hooks in `tone`: scene-referred options, highlight rolloff controls, and a simple “DRC profile” parameter set (e.g., `tone.profile: standard|hdr_soft|hdr_strong`).
   - Keep the pipeline single-frame and deterministic; no multi-frame or AI here—just parameterized classical tone/DRC that can later be driven by multi-frame/AI logic.
   - Keep run-folder layout and `manifest.json` schema unchanged; all changes must be measurable via A/B comparison and existing diagnostics.

@@ -79,6 +79,7 @@ When dumping is enabled, each stage should emit:
 - `roi.png` — optional ROI crop preview (configurable ROI)
 - `debug.json` — stage parameters + key metrics + any warnings
 - `timing_ms.json` — elapsed time for this stage
+- Viewer contract note: the same artifact paths are consumed in both single-run and compare modes; UI layout/presentation changes must not alter artifact contracts.
 
 Optional (stage-dependent):
 - histograms, heatmaps, masks, patch metrics

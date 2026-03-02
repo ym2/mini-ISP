@@ -116,7 +116,7 @@ Each stage entry must include:
 - `artifacts.timing` (string)
 
 ### 3.3 Optional fields
-- `title` (string)
+- `title` (string; metadata field, viewer subtitle is mode-driven)
 - `input.width`, `input.height` (int)
 - `input.cfa_pattern` (string)
 - `input.bit_depth`, `input.black_level`, `input.white_level` (numbers; RAW only)
@@ -161,6 +161,7 @@ The viewer is a static page that:
 - shows the stage list in order
 - displays `preview.png` (and ROI when available)
 - shows the `debug.json` content and timing
+- shows metrics/diagnostics panels only when backing artifacts exist
 Note: open the viewer via HTTP (e.g., `python -m http.server`) since `file://` may block `fetch()` in some browsers.
 
 ### 5.1 What the viewer must not assume
