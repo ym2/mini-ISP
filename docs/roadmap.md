@@ -79,6 +79,26 @@ All v0.2 work must be **backward-compatible** with v0.1 runs:
   - Output: a JSON report file (e.g., `reports/scene_pack_<name>.json`) with one row per image per config, including key metrics (from existing metrics artifacts), runtime, and links/paths to the corresponding run folders. Optionally include a simple “top regressions” section (e.g., worst ΔPSNR / highest halo proxy score).
   - No viewer changes required; reuse the existing run layout, metrics/diagnostics, and compare bundles.
   - Done when: you can point the tool at a folder of scenes, run baseline vs candidate, and get a single report that makes it easy to spot wins/regressions and jump into specific runs for inspection.
+
+- **M8 — DNG-aware CCM auto-default (deterministic metadata path)**
+  - Add deterministic DNG metadata chain auto-default in the runner resolver while preserving explicit `stages.ccm.*` precedence.
+  - Done when: DNG RAW runs auto-inject CCM chain deterministically (or fall back clearly), and provenance is recorded in `stages/<nn>_ccm/debug.json`.
+
+- **M9 — Non-DNG CCM auto-default (deterministic metadata policy)**
+  - Extend resolver auto-default to non-DNG RAW via policy `non_dng_meta_default` (no reference scoring).
+  - Done when: non-DNG RAW runs resolve CCM deterministically from metadata with explicit fallback reasons and no schema/layout changes.
+
+- **M10 — Non-DNG whitepoint-branch refinement**
+  - Refine non-DNG resolver decisions using metadata whitepoint-error branches (`wp_err_d50`, `wp_err_d65`) with explicit branch provenance.
+  - Done when: branch selection is deterministic, debug provenance is complete, and representative non-DNG cases remain stable.
+
+- **M11 — Non-DNG outlier fallback policy**
+  - Add deterministic metadata-confidence outlier fallback (identity) to protect known outlier-class cases without camera-name hardcoding.
+  - Done when: good cases stay stable and outlier cases are handled with explicit fallback provenance.
+
+- **M12 — Non-DNG matrix-source parity refinement**
+  - Add deterministic matrix-source policy `wp_error_min_det` for selecting camera→XYZ input from `rawpy.rgb_xyz_matrix` candidates.
+  - Done when: selected source/input variant and whitepoint-error provenance are recorded and resolver behavior remains deterministic.
   
 Notes:
 - v0.2 can be developed using PNG-bootstrap runs; M5/M6 adds RAW/DNG input support to make diagnostics and A/B comparisons more representative on real sensor data.
