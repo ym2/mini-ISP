@@ -14,6 +14,12 @@ mini-ISP is a compact, modular ISP pipeline you can run on RAW or PNG bootstrap 
 - **Config + CLI overrides**: YAML config plus `--set KEY=VALUE` overrides and flags to enable metrics/diagnostics.
 - **Minimal dependencies**: NumPy + Pillow/PyYAML; optional RAW support via `rawpy`.
 
+![Single-run stage inspection](docs/media/screenshot-01-single-stage-signals.png)
+<p><sub><em>Single-run stage inspection with curated stage signals, metrics, and deterministic debug provenance.</em></sub></p>
+
+![Compare mode A/B](docs/media/screenshot-02-compare-ab.png)
+<p><sub><em>Compare mode for A/B tuning with synchronized stage navigation and per-stage deltas.</em></sub></p>
+
 ## Pipeline overview
 Single-frame staged pipeline (v0.1 complete), with curated composites:
 - `classic`: separate stages (best for learning/debugging)

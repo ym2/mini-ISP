@@ -185,13 +185,27 @@ function normalizeCompareLabel(label, side) {
   return withoutPrefix || side;
 }
 
+function stripSharedLabelCategory(labelA, labelB) {
+  const matchA = /^([^:]+):\s*(.+)$/.exec(labelA);
+  const matchB = /^([^:]+):\s*(.+)$/.exec(labelB);
+  if (!matchA || !matchB) return [labelA, labelB];
+  const categoryA = matchA[1].trim().toLowerCase();
+  const categoryB = matchB[1].trim().toLowerCase();
+  if (!categoryA || categoryA !== categoryB) return [labelA, labelB];
+  const valueA = matchA[2].trim();
+  const valueB = matchB[2].trim();
+  if (!valueA || !valueB) return [labelA, labelB];
+  return [valueA, valueB];
+}
+
 function buildCompareSubtitle(bundle) {
   const variantA = normalizeCompareLabel(bundle && bundle.a ? bundle.a.label : "", "A");
   const variantB = normalizeCompareLabel(bundle && bundle.b ? bundle.b.label : "", "B");
+  const [displayA, displayB] = stripSharedLabelCategory(variantA, variantB);
   if (variantA === "A" && variantB === "B") {
     return "Compare";
   }
-  return `Compare: ${variantA} vs ${variantB}`;
+  return `Compare: ${displayA} vs ${displayB}`;
 }
 
 function renderStageList() {
